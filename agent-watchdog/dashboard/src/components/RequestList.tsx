@@ -6,7 +6,7 @@ interface Request {
   action: string;
   target: string;
   status: string;
-  decision?: string;
+  decision?: 'APPROVE' | 'FLAG' | 'KILL'; // Make decision more specific
   createdAt: string;
   processedAt?: string;
 }
@@ -50,6 +50,29 @@ export function RequestList({ onSelectRequest, refreshTrigger }: RequestListProp
       setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleManualKill = async (requestId: string) => {
+    if (!window.confirm(`Are you sure you want to manually kill request ${requestId}? This action cannot be undone.`)) {
+      return;
+    }
+    try {
+      const response = await fetch(`/api/requests/${requestId}/manual-kill`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to manually kill request');
+      }
+      alert(`Request ${requestId} manually killed.`);
+      fetchRequests(); // Refresh the list to show updated status
+    } catch (err) {
+      console.error('Error manual killing request:', err);
+      alert(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   };
 
@@ -102,17 +125,31 @@ export function RequestList({ onSelectRequest, refreshTrigger }: RequestListProp
             </div>
             <div className="flex items-center gap-2">
               {request.decision && (
-                <span
-                  className={`text-lg ${
-                    request.decision === 'APPROVE'
-                      ? 'text-green-500'
-                      : request.decision === 'FLAG'
-                      ? 'text-yellow-500'
-                      : 'text-red-500'
-                  }`}
-                >
-                  {decisionIcons[request.decision]}
-                </span>
+                <>
+                  <span
+                    className={`text-lg ${
+                      request.decision === 'APPROVE'
+                        ? 'text-green-500'
+                        : request.decision === 'FLAG'
+                        ? 'text-yellow-500'
+                        : 'text-red-500'
+                    }`}
+                  >
+                    {decisionIcons[request.decision]}
+                  </span>
+                  {request.decision === 'FLAG' && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation(); // Prevent parent div's onClick
+                        handleManualKill(request.id);
+                      }}
+                      className="ml-2 px-2 py-1 bg-red-600 rounded-md text-white text-xs hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500"
+                      title="Manually Kill Request"
+                    >
+                      Kill
+                    </button>
+                  )}
+                </>
               )}
               <span className="text-xs text-gray-500">
                 {new Date(request.createdAt).toLocaleTimeString()}

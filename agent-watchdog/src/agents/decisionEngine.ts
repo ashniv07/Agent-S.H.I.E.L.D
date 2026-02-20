@@ -18,7 +18,7 @@ export async function decisionEngine(
   if (
     riskScore >= policies.killThreshold ||
     severity === 'CRITICAL' ||
-    violationCount >= 3
+    (violationCount >= 3 && (severity === 'HIGH' || severity === 'CRITICAL'))
   ) {
     decision = 'KILL';
     reasoning = buildReasoning('KILL', {

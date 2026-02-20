@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import { AgentRequestSchema } from '../../types/index.js';
+import { AgentRequestSchema, PipelineState } from '../../types/index.js';
 import { db } from '../../db/index.js';
 import { analyzeRequest } from '../../agents/graph.js';
 import { auditLogger } from '../../services/auditLogger.js';
@@ -146,6 +146,82 @@ export function createRequestsRouter(io: SocketIOServer): Router {
       });
     } catch (error) {
       console.error('Error processing request:', error);
+      return res.status(500).json({
+        error: 'Internal server error',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  });
+
+  // Manual kill for a flagged request
+  router.post('/:id/manual-kill', async (req: Request, res: Response) => {
+    try {
+      const requestId = req.params.id;
+
+      const request = db.getRequest(requestId);
+      if (!request) {
+        return res.status(404).json({ error: 'Request not found' });
+      }
+
+      // Only allow manual kill if the request is flagged or still processing
+      if (request.status !== 'flagged' && request.status !== 'processing') {
+        return res.status(400).json({
+          error: `Cannot manually kill a request with status '${request.status}'`,
+        });
+      }
+
+      // Trigger the kill switch
+      const manualKillReason = `Manual kill initiated by human intervention for request ${requestId}.`;
+      killSwitch.trigger(request.agent_id, manualKillReason);
+
+      // Update request status in DB
+      db.updateRequest(requestId, {
+        status: 'killed',
+        decision: 'KILL',
+        decision_reasoning: manualKillReason,
+        processed_at: new Date().toISOString(),
+      });
+
+      // For auditLogger.logRequestProcessing, construct a minimal PipelineState
+      const manualKillResult: Partial<PipelineState> = {
+          decision: 'KILL',
+          decisionReasoning: manualKillReason,
+          processingPath: ['manualKill'], // Indicating it was a manual kill outside the auto pipeline
+          severityResult: { // A manual kill is a critical intervention
+              overallSeverity: 'CRITICAL',
+              riskScore: 100,
+              reasoning: manualKillReason,
+          },
+      };
+      auditLogger.logRequestProcessing(requestId, manualKillResult as PipelineState);
+
+      // Emit WebSocket event for dashboard
+      io.emit('killswitch:triggered', {
+        agentId: request.agent_id,
+        requestId,
+        reason: manualKillReason,
+        timestamp: new Date().toISOString(),
+        isManual: true, // Add a flag to indicate manual kill
+      });
+
+      // Emit updated request:processed event
+      io.emit('request:processed', {
+        id: requestId,
+        agentId: request.agent_id,
+        decision: 'KILL',
+        severity: manualKillResult.severityResult?.overallSeverity,
+        violationCount: db.getViolationsByRequest(requestId).length,
+        processingPath: manualKillResult.processingPath,
+        timestamp: new Date().toISOString(),
+      });
+
+      return res.status(200).json({
+        message: 'Request manually killed successfully',
+        requestId,
+        agentId: request.agent_id,
+      });
+    } catch (error) {
+      console.error(`Error manually killing request ${req.params.id}:`, error);
       return res.status(500).json({
         error: 'Internal server error',
         message: error instanceof Error ? error.message : 'Unknown error',

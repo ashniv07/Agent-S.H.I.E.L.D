@@ -52,7 +52,7 @@ class AuditLoggerService {
     const systemRequestId = uuidv4();
     db.createAuditLog({
       id: uuidv4(),
-      request_id: systemRequestId,
+      request_id: null,
       agent_id: agentId,
       action: 'KILL_SWITCH_ACTIVATED',
       decision: 'KILL',
@@ -72,7 +72,7 @@ class AuditLoggerService {
     const systemRequestId = uuidv4();
     db.createAuditLog({
       id: uuidv4(),
-      request_id: systemRequestId,
+      request_id: null,
       agent_id: agentId,
       action: 'KILL_SWITCH_DEACTIVATED',
       decision: 'APPROVE',

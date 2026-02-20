@@ -31,7 +31,7 @@ export type ViolationRow = z.infer<typeof ViolationRowSchema>;
 
 export const AuditLogRowSchema = z.object({
   id: z.string(),
-  request_id: z.string(),
+  request_id: z.string().nullable(),
   agent_id: z.string(),
   action: z.string(),
   decision: z.enum(['APPROVE', 'FLAG', 'KILL']),

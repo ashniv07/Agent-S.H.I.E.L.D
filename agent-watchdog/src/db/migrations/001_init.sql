@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS violations (
 -- Audit logs table: decision audit trail
 CREATE TABLE IF NOT EXISTS audit_logs (
     id TEXT PRIMARY KEY,
-    request_id TEXT NOT NULL,
+    request_id TEXT,
     agent_id TEXT NOT NULL,
     action TEXT NOT NULL,
     decision TEXT NOT NULL CHECK (decision IN ('APPROVE', 'FLAG', 'KILL')),

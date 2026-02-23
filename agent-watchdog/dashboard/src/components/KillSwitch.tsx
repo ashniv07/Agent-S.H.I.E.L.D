@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useWebSocket } from '../hooks/useWebSocket.js';
 
 interface Agent {
   agentId: string;
@@ -18,12 +19,9 @@ export function KillSwitch({ onKillSwitch, refreshTrigger }: KillSwitchProps) {
   const [selectedAgent, setSelectedAgent] = useState<string>('');
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const { lastEvent } = useWebSocket();
 
-  useEffect(() => {
-    fetchAgents();
-  }, [refreshTrigger]);
-
-  const fetchAgents = async () => {
+  const fetchAgents = useCallback(async () => {
     try {
       const response = await fetch('/api/agents');
       if (!response.ok) throw new Error('Failed to fetch agents');
@@ -34,11 +32,25 @@ export function KillSwitch({ onKillSwitch, refreshTrigger }: KillSwitchProps) {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    void fetchAgents();
+  }, [refreshTrigger, fetchAgents]);
+
+  // Real-time: refresh when kill switch fires or agent status changes
+  useEffect(() => {
+    if (!lastEvent) return;
+    if (
+      lastEvent.type === 'killswitch:triggered' ||
+      lastEvent.type === 'agent:status'
+    ) {
+      void fetchAgents();
+    }
+  }, [lastEvent, fetchAgents]);
 
   const handleKillSwitch = async () => {
     if (!selectedAgent || !reason) return;
-
     setSubmitting(true);
     try {
       const response = await fetch(`/api/agents/${selectedAgent}/killswitch`, {
@@ -46,13 +58,11 @@ export function KillSwitch({ onKillSwitch, refreshTrigger }: KillSwitchProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason }),
       });
-
       if (!response.ok) throw new Error('Failed to trigger kill switch');
-
       onKillSwitch?.(selectedAgent, reason);
       setSelectedAgent('');
       setReason('');
-      fetchAgents();
+      void fetchAgents();
     } catch (err) {
       console.error('Error triggering kill switch:', err);
     } finally {
@@ -68,9 +78,8 @@ export function KillSwitch({ onKillSwitch, refreshTrigger }: KillSwitchProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason: 'Manual restoration via dashboard' }),
       });
-
       if (!response.ok) throw new Error('Failed to restore agent');
-      fetchAgents();
+      void fetchAgents();
     } catch (err) {
       console.error('Error restoring agent:', err);
     } finally {
@@ -79,10 +88,7 @@ export function KillSwitch({ onKillSwitch, refreshTrigger }: KillSwitchProps) {
   };
 
   const handleEmergencyKillAll = async () => {
-    if (!confirm('Are you sure you want to block ALL agents? This will stop all agent activity.')) {
-      return;
-    }
-
+    if (!confirm('Are you sure you want to block ALL agents? This will stop all agent activity.')) return;
     setSubmitting(true);
     try {
       const response = await fetch('/api/agents/emergency/kill-all', {
@@ -90,9 +96,8 @@ export function KillSwitch({ onKillSwitch, refreshTrigger }: KillSwitchProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason: 'Emergency kill all triggered via dashboard' }),
       });
-
       if (!response.ok) throw new Error('Failed to trigger emergency kill');
-      fetchAgents();
+      void fetchAgents();
     } catch (err) {
       console.error('Error triggering emergency kill:', err);
     } finally {
@@ -105,7 +110,13 @@ export function KillSwitch({ onKillSwitch, refreshTrigger }: KillSwitchProps) {
 
   return (
     <div className="space-y-4">
-      {/* Emergency Kill All Button */}
+      {/* Real-time indicator */}
+      <div className="flex items-center gap-1.5 text-xs text-gray-500">
+        <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+        Live — updates automatically
+      </div>
+
+      {/* Emergency Kill All */}
       <button
         onClick={handleEmergencyKillAll}
         disabled={submitting || activeAgents.length === 0}
@@ -117,9 +128,7 @@ export function KillSwitch({ onKillSwitch, refreshTrigger }: KillSwitchProps) {
 
       {/* Individual Kill Switch */}
       <div className="p-4 bg-gray-800 rounded-lg">
-        <h3 className="text-sm font-semibold text-gray-400 mb-3">
-          Kill Switch - Single Agent
-        </h3>
+        <h3 className="text-sm font-semibold text-gray-400 mb-3">Kill Switch — Single Agent</h3>
         <div className="space-y-3">
           <select
             value={selectedAgent}
@@ -133,7 +142,6 @@ export function KillSwitch({ onKillSwitch, refreshTrigger }: KillSwitchProps) {
               </option>
             ))}
           </select>
-
           <input
             type="text"
             value={reason}
@@ -141,7 +149,6 @@ export function KillSwitch({ onKillSwitch, refreshTrigger }: KillSwitchProps) {
             placeholder="Reason for blocking..."
             className="w-full p-2 bg-gray-700 rounded border border-gray-600 text-gray-100 focus:border-red-500 focus:outline-none"
           />
-
           <button
             onClick={handleKillSwitch}
             disabled={!selectedAgent || !reason || submitting}
@@ -165,12 +172,13 @@ export function KillSwitch({ onKillSwitch, refreshTrigger }: KillSwitchProps) {
                 className="flex items-center justify-between p-2 bg-gray-800/50 rounded"
               >
                 <div>
-                  <span className="font-mono text-red-400">
-                    {agent.agentId}
-                  </span>
+                  <span className="font-mono text-red-400">{agent.agentId}</span>
                   {agent.blockedReason && (
-                    <p className="text-xs text-gray-500 mt-1">
-                      {agent.blockedReason}
+                    <p className="text-xs text-gray-500 mt-0.5">{agent.blockedReason}</p>
+                  )}
+                  {agent.blockedAt && (
+                    <p className="text-xs text-gray-600">
+                      Since: {new Date(agent.blockedAt).toLocaleString()}
                     </p>
                   )}
                 </div>
@@ -187,7 +195,7 @@ export function KillSwitch({ onKillSwitch, refreshTrigger }: KillSwitchProps) {
         </div>
       )}
 
-      {/* Active Agents List */}
+      {/* Active Agents */}
       {!loading && activeAgents.length > 0 && (
         <div className="p-4 bg-gray-800/50 rounded-lg">
           <h3 className="text-sm font-semibold text-gray-400 mb-2">

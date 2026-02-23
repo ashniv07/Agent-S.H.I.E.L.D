@@ -54,11 +54,13 @@ export const watchdogGraph = createWatchdogGraph();
 
 // Helper function to run the pipeline
 export async function analyzeRequest(
-  request: WatchdogStateType['request']
+  request: WatchdogStateType['request'],
+  opts?: { behavioralAnomalyScore?: number }
 ): Promise<WatchdogStateType> {
   const initialState: Partial<WatchdogStateType> = {
     request,
     processingPath: [],
+    behavioralAnomalyScore: opts?.behavioralAnomalyScore,
   };
 
   const result = await watchdogGraph.invoke(initialState);

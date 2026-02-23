@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
 import SortRoundedIcon from '@mui/icons-material/SortRounded';
-import StarRoundedIcon from '@mui/icons-material/StarRounded';
-import StarBorderRoundedIcon from '@mui/icons-material/StarBorderRounded';
+import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
+import { TextType } from './TextType';
 
 interface Request {
   id: string;
@@ -10,7 +10,7 @@ interface Request {
   action: string;
   target: string;
   status: string;
-  decision?: 'APPROVE' | 'FLAG' | 'KILL'; // Make decision more specific
+  decision?: 'APPROVE' | 'FLAG' | 'KILL';
   createdAt: string;
   processedAt?: string;
 }
@@ -21,17 +21,23 @@ interface RequestListProps {
 }
 
 const statusColors: Record<string, string> = {
-  pending: 'bg-gray-600',
-  processing: 'bg-blue-600 animate-pulse',
-  approved: 'bg-green-600',
-  flagged: 'bg-yellow-600',
-  killed: 'bg-red-600',
+  pending: 'bg-gray-500',
+  processing: 'bg-blue-500 animate-pulse',
+  approved: 'bg-green-500',
+  flagged: 'bg-yellow-500',
+  killed: 'bg-red-500',
 };
 
 const decisionLabels: Record<string, string> = {
   APPROVE: 'PASS',
   FLAG: 'WARN',
   KILL: 'FAIL',
+};
+
+const decisionIcons: Record<string, string> = {
+  APPROVE: 'OK',
+  FLAG: '!',
+  KILL: 'X',
 };
 
 type SortKey = 'newest' | 'oldest' | 'agent' | 'status';
@@ -48,19 +54,18 @@ export function RequestList({ onSelectRequest, refreshTrigger }: RequestListProp
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [fileFilter, setFileFilter] = useState('');
   const [sortBy, setSortBy] = useState<SortKey>('newest');
-  const [starredIds, setStarredIds] = useState<Record<string, true>>({});
-  const [showStarredOnly, setShowStarredOnly] = useState(false);
 
   useEffect(() => {
-    fetchRequests();
+    void fetchRequests();
   }, [refreshTrigger]);
 
   const fetchRequests = async () => {
     try {
       const response = await fetch('/api/requests?limit=50');
       if (!response.ok) throw new Error('Failed to fetch requests');
-      const data = await response.json();
+      const data = await response.json() as { requests: Request[] };
       setRequests(data.requests);
       setError(null);
     } catch (err) {
@@ -69,6 +74,33 @@ export function RequestList({ onSelectRequest, refreshTrigger }: RequestListProp
       setLoading(false);
     }
   };
+
+  const filteredRequests = useMemo(() => {
+    const searchValue = search.trim().toLowerCase();
+    const fileValue = fileFilter.trim().toLowerCase();
+
+    const filtered = requests.filter((request) => {
+      const haystack = `${request.agentId} ${request.action} ${request.target} ${request.status} ${request.decision ?? ''}`.toLowerCase();
+      const searchMatch = searchValue.length === 0 || haystack.includes(searchValue);
+      const fileMatch = fileValue.length === 0 || request.target.toLowerCase().includes(fileValue);
+      return searchMatch && fileMatch;
+    });
+
+    filtered.sort((a, b) => {
+      if (sortBy === 'newest') {
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      }
+      if (sortBy === 'oldest') {
+        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      }
+      if (sortBy === 'agent') {
+        return a.agentId.localeCompare(b.agentId);
+      }
+      return a.status.localeCompare(b.status);
+    });
+
+    return filtered;
+  }, [fileFilter, requests, search, sortBy]);
 
   if (loading) {
     return (
@@ -80,11 +112,11 @@ export function RequestList({ onSelectRequest, refreshTrigger }: RequestListProp
 
   if (error) {
     return (
-      <div className="rounded-lg bg-red-900/50 p-4 text-red-400">
+      <div className="bg-red-900/30 p-4 text-red-300">
         Error: {error}
         <button
-          onClick={fetchRequests}
-          className="ml-4 rounded bg-red-600 px-3 py-1 text-sm text-white hover:bg-red-700"
+          onClick={() => void fetchRequests()}
+          className="ml-4 bg-red-700 px-3 py-1 text-sm text-white hover:bg-red-600"
         >
           Retry
         </button>
@@ -92,55 +124,126 @@ export function RequestList({ onSelectRequest, refreshTrigger }: RequestListProp
     );
   }
 
-  if (requests.length === 0) {
-    return (
-      <div className="py-8 text-center text-gray-500">
-        No requests yet. Submit a request to see it here.
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-2 max-h-96 overflow-y-auto">
-      {requests.map((request) => (
-        <div
-          key={request.id}
-          onClick={() => onSelectRequest?.(request)}
-          className="p-3 bg-gray-800 rounded-lg cursor-pointer hover:bg-gray-750 transition-colors border border-gray-700 hover:border-gray-600"
-        >
-          <div className="flex items-center justify-between mb-1">
-            <div className="flex items-center gap-2">
-              <span
-                className={`w-2 h-2 rounded-full ${statusColors[request.status]}`}
-              ></span>
-              <span className="font-mono text-sm text-gray-300">
-                {request.agentId}
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              {request.decision && (
-                <span
-                  className={`text-lg ${
-                    request.decision === 'APPROVE'
-                      ? 'text-green-500'
-                      : request.decision === 'FLAG'
-                      ? 'text-yellow-500'
-                      : 'text-red-500'
-                  }`}
-                >
-                  {decisionIcons[request.decision]}
-                </span>
-              )}
-              <span className="text-xs text-gray-500">
-                {new Date(request.createdAt).toLocaleTimeString()}
-              </span>
-            </div>
+    <div className="space-y-4">
+      <div className="space-y-1">
+        <h2 className="text-xl font-semibold text-slate-100">Requests</h2>
+        <TextType
+          texts={[
+            'Track incoming requests and see how each decision is made in real time.',
+            'Search, filter by file target, and review request outcomes quickly.',
+          ]}
+          className="text-sm text-slate-300"
+        />
+      </div>
+
+      <div className="grid gap-2 md:grid-cols-12">
+        <div className="md:col-span-5">
+          <label className="sr-only" htmlFor="request-search">
+            Search requests
+          </label>
+          <div className="flex items-center gap-2 border-b border-slate-700 px-2 py-2">
+            <SearchOutlinedIcon fontSize="small" className="text-slate-400" />
+            <input
+              id="request-search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search by agent, action, status, or decision"
+              className="w-full bg-transparent text-sm text-slate-100 outline-none placeholder:text-slate-500"
+            />
           </div>
-          <div className="text-sm">
-            <span className="text-blue-400">{request.action}</span>
-            <span className="text-gray-500 mx-1">→</span>
-            <span className="text-gray-400 truncate">{request.target}</span>
+        </div>
+
+        <div className="md:col-span-4">
+          <label className="sr-only" htmlFor="request-file-filter">
+            Filter by file
+          </label>
+          <div className="flex items-center gap-2 border-b border-slate-700 px-2 py-2">
+            <DescriptionOutlinedIcon fontSize="small" className="text-slate-400" />
+            <input
+              id="request-file-filter"
+              value={fileFilter}
+              onChange={(event) => setFileFilter(event.target.value)}
+              placeholder="File / target filter"
+              className="w-full bg-transparent text-sm text-slate-100 outline-none placeholder:text-slate-500"
+            />
           </div>
+        </div>
+
+        <div className="md:col-span-3">
+          <label className="sr-only" htmlFor="request-sort">
+            Sort requests
+          </label>
+          <div className="flex items-center gap-2 border-b border-slate-700 px-2 py-2">
+            <SortRoundedIcon fontSize="small" className="text-slate-400" />
+            <select
+              id="request-sort"
+              value={sortBy}
+              onChange={(event) => setSortBy(event.target.value as SortKey)}
+              className="w-full bg-transparent text-sm text-slate-100 outline-none"
+            >
+              {(Object.keys(sortLabels) as SortKey[]).map((key) => (
+                <option key={key} value={key} className="bg-slate-900 text-slate-100">
+                  {sortLabels[key]}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {filteredRequests.length === 0 ? (
+        <div className="py-8 text-center text-sm text-slate-500">
+          No matching requests found.
+        </div>
+      ) : (
+        <div className="max-h-[620px] overflow-y-auto border-y border-slate-700/80">
+          {filteredRequests.map((request, index) => {
+            const rowTone = index % 2 === 0 ? 'bg-slate-950/10' : 'bg-slate-900/35';
+            const decisionTone =
+              request.decision === 'APPROVE'
+                ? 'text-emerald-300'
+                : request.decision === 'FLAG'
+                ? 'text-amber-300'
+                : request.decision === 'KILL'
+                ? 'text-rose-300'
+                : 'text-slate-500';
+
+            return (
+              <button
+                type="button"
+                key={request.id}
+                onClick={() => onSelectRequest?.(request)}
+                className={`grid w-full grid-cols-12 items-center gap-2 border-b border-slate-700/60 px-3 py-3 text-left transition-colors hover:bg-cyan-500/10 ${rowTone}`}
+              >
+                <div className="col-span-12 md:col-span-2">
+                  <div className="inline-flex items-center gap-2 text-xs text-slate-300">
+                    <span className={`h-2 w-2 rounded-full ${statusColors[request.status]}`}></span>
+                    <span className="uppercase tracking-wide">{request.status}</span>
+                  </div>
+                </div>
+
+                <div className="col-span-12 md:col-span-3">
+                  <p className="text-sm font-medium text-slate-100">{request.agentId}</p>
+                  <p className="text-xs text-slate-400">{request.action}</p>
+                </div>
+
+                <div className="col-span-12 truncate text-sm text-slate-300 md:col-span-4">
+                  {request.target}
+                </div>
+
+                <div className="col-span-6 text-sm font-semibold md:col-span-1">
+                  <span className={decisionTone}>
+                    {request.decision ? `${decisionIcons[request.decision]} ${decisionLabels[request.decision]}` : 'PENDING'}
+                  </span>
+                </div>
+
+                <div className="col-span-6 text-right text-xs text-slate-400 md:col-span-2">
+                  {new Date(request.createdAt).toLocaleTimeString()}
+                </div>
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

@@ -88,24 +88,28 @@ class AuditLoggerService {
   /**
    * Get all audit logs
    */
-  getAll(limit = 100, offset = 0): AuditLog[] {
-    const logs = db.getAuditLogs(limit, offset);
+  getAll(limit = 100, offset = 0, apiKeyId?: string): AuditLog[] {
+    const logs = db.getAuditLogs(limit, offset, apiKeyId);
     return logs.map(this.formatAuditLog);
   }
 
   /**
    * Get audit logs for a specific agent
    */
-  getByAgent(agentId: string): AuditLog[] {
-    const logs = db.getAuditLogsByAgent(agentId);
+  getByAgent(agentId: string, apiKeyId?: string): AuditLog[] {
+    const logs = db.getAuditLogsByAgent(agentId, apiKeyId);
     return logs.map(this.formatAuditLog);
   }
 
   /**
    * Get audit log by ID
    */
-  getById(id: string): AuditLog | undefined {
+  getById(id: string, apiKeyId?: string): AuditLog | undefined {
     const log = db.getAuditLog(id);
+    if (apiKeyId && log?.request_id) {
+      const scoped = db.getRequest(log.request_id, apiKeyId);
+      if (!scoped) return undefined;
+    }
     return log ? this.formatAuditLog(log) : undefined;
   }
 
@@ -114,7 +118,7 @@ class AuditLoggerService {
 
     return {
       id: row.id,
-      requestId: row.request_id,
+      requestId: row.request_id ?? '',
       agentId: row.agent_id,
       action: row.action,
       decision: row.decision as Decision,
@@ -123,7 +127,7 @@ class AuditLoggerService {
         ? JSON.parse(row.analysis_result).violations?.map(
             (v: { type: string; description: string; evidence: string }) => ({
               id: uuidv4(),
-              requestId: row.request_id,
+              requestId: row.request_id ?? '',
               type: v.type,
               description: v.description,
               severity: 'MEDIUM' as const,

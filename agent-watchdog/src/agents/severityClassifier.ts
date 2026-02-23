@@ -2,6 +2,7 @@ import { ChatAnthropic } from '@langchain/anthropic';
 import { config } from '../config/index.js';
 import type { SeverityLevel } from '../types/index.js';
 import type { WatchdogStateType } from './state.js';
+import type { RiskFactor } from './state.js';
 
 const llm = new ChatAnthropic({
   apiKey: config.anthropicApiKey,
@@ -12,7 +13,7 @@ const llm = new ChatAnthropic({
 export async function severityClassifierAgent(
   state: WatchdogStateType
 ): Promise<Partial<WatchdogStateType>> {
-  const { request, monitorResult, analysisResult } = state;
+  const { request, monitorResult, analysisResult, behavioralAnomalyScore } = state;
 
   const systemPrompt = `You are the Severity Classifier Agent in a security pipeline.
 Your role is to assess the overall risk level of a request based on all gathered information.
@@ -29,21 +30,40 @@ Risk Score (0-100):
 - 61-85: HIGH severity
 - 86-100: CRITICAL severity
 
-Consider:
-1. Number and severity of violations
-2. Type of data/systems at risk
-3. Intent analysis from worker monitor
-4. Potential impact if the request succeeds
-5. Historical context of the agent
+You MUST output a structured risk assessment with weighted factors. Each factor contributes to the total risk score.
 
-Respond in JSON format:
+Risk Factors to evaluate (weights must sum to 100):
+1. "Dangerous Command" (weight 30): Direct execution of system commands, shell injection, code eval
+2. "Sensitive Data Access" (weight 25): PII, credentials, secrets, private keys, system files
+3. "Behavioral Anomaly" (weight 20): Deviation from agent's normal behavior pattern
+4. "Policy Violation Severity" (weight 15): Number and severity of policy rule matches
+5. "Data Exfiltration Risk" (weight 10): Potential for data leakage or unauthorized transfer
+
+For each factor: set triggered=true if evidence exists, provide the evidence string, and set weight contribution proportionally.
+
+Respond ONLY in JSON format:
 {
   "overallSeverity": "LOW|MEDIUM|HIGH|CRITICAL",
   "riskScore": 0-100,
-  "reasoning": "detailed explanation of the severity assessment",
+  "reasoning": "detailed explanation",
+  "riskFactors": [
+    { "factor": "Dangerous Command", "weight": 30, "triggered": true|false, "evidence": "string or null" },
+    { "factor": "Sensitive Data Access", "weight": 25, "triggered": true|false, "evidence": "string or null" },
+    { "factor": "Behavioral Anomaly", "weight": 20, "triggered": true|false, "evidence": "string or null" },
+    { "factor": "Policy Violation Severity", "weight": 15, "triggered": true|false, "evidence": "string or null" },
+    { "factor": "Data Exfiltration Risk", "weight": 10, "triggered": true|false, "evidence": "string or null" }
+  ],
+  "triggeredRules": ["list of rule IDs that matched, e.g. sys-001, pii-002"],
   "primaryConcerns": ["main factors driving the severity"],
   "mitigatingFactors": ["any factors that lower the risk"]
 }`;
+
+  const behaviorContext = behavioralAnomalyScore && behavioralAnomalyScore > 0
+    ? `\nBEHAVIORAL ANALYSIS:\nAnomaly Score: ${behavioralAnomalyScore}/50 (${
+        behavioralAnomalyScore >= 30 ? 'HIGH deviation' :
+        behavioralAnomalyScore >= 15 ? 'MODERATE deviation' : 'MINOR deviation'
+      } from agent's normal pattern)\nThis agent is behaving unusually compared to its baseline.`
+    : '\nBEHAVIORAL ANALYSIS:\nAnomaly Score: 0/50 (behavior matches normal pattern for this agent)';
 
   const response = await llm.invoke([
     { role: 'system', content: systemPrompt },
@@ -67,8 +87,9 @@ ${JSON.stringify(analysisResult?.violations || [], null, 2)}
 
 POLICY BREACHES:
 ${JSON.stringify(analysisResult?.policyBreaches || [])}
+${behaviorContext}
 
-Provide severity classification with detailed reasoning.`,
+Provide severity classification with detailed reasoning and complete riskFactors array.`,
     },
   ]);
 
@@ -76,6 +97,8 @@ Provide severity classification with detailed reasoning.`,
     overallSeverity: SeverityLevel;
     riskScore: number;
     reasoning: string;
+    riskFactors?: RiskFactor[];
+    triggeredRules?: string[];
     primaryConcerns?: string[];
     mitigatingFactors?: string[];
   };
@@ -114,11 +137,21 @@ Provide severity classification with detailed reasoning.`,
     fullReasoning += ` Mitigating factors: ${parsed.mitigatingFactors.join(', ')}.`;
   }
 
+  // Determine final action label
+  const score = parsed.riskScore;
+  const finalAction =
+    score >= 90 || parsed.overallSeverity === 'CRITICAL' ? 'KILL' :
+    score >= 70 || parsed.overallSeverity === 'HIGH' ? 'FLAG' :
+    score <= 30 && parsed.overallSeverity === 'LOW' ? 'APPROVE' : 'FLAG';
+
   return {
     severityResult: {
       overallSeverity: parsed.overallSeverity,
       riskScore: parsed.riskScore,
       reasoning: fullReasoning,
+      riskFactors: parsed.riskFactors || [],
+      triggeredRules: parsed.triggeredRules || [],
+      finalAction,
     },
     processingPath: ['severityClassifier'],
   };

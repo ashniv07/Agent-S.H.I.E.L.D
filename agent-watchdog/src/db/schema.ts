@@ -4,6 +4,7 @@ import { z } from 'zod';
 
 export const RequestRowSchema = z.object({
   id: z.string(),
+  api_key_id: z.string().nullable(),
   agent_id: z.string(),
   action: z.string(),
   target: z.string(),

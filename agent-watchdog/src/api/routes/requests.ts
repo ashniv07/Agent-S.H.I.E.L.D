@@ -1,15 +1,18 @@
 import { Router, type Request, type Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import { AgentRequestSchema, PipelineState } from '../../types/index.js';
+import { AgentRequestSchema } from '../../types/index.js';
 import { db } from '../../db/index.js';
 import { analyzeRequest } from '../../agents/graph.js';
 import { auditLogger } from '../../services/auditLogger.js';
 import { killSwitch } from '../../services/killSwitch.js';
 import { permissions } from '../../services/permissions.js';
+import { getAnomalyScore, updateBaseline } from '../../services/behavioralTracker.js';
 import type { Server as SocketIOServer } from 'socket.io';
+import type { WatchdogStateType } from '../../agents/state.js';
 
 export function createRequestsRouter(io: SocketIOServer): Router {
   const router = Router();
+  const getParam = (param: string | string[]): string => (Array.isArray(param) ? param[0] : param);
 
   // Submit a new request for analysis
   router.post('/', async (req: Request, res: Response) => {
@@ -54,6 +57,7 @@ export function createRequestsRouter(io: SocketIOServer): Router {
       // Create request record
       const dbRequest = db.createRequest({
         id: requestId,
+        api_key_id: req.authApiKeyId ?? null,
         agent_id: request.agentId,
         action: request.action,
         target: request.target,
@@ -74,8 +78,15 @@ export function createRequestsRouter(io: SocketIOServer): Router {
       // Update status to processing
       db.updateRequest(requestId, { status: 'processing' });
 
+      // Get behavioral anomaly score before pipeline
+      const behavioralAnomalyScore = getAnomalyScore(
+        request.agentId,
+        request.action,
+        request.target
+      );
+
       // Run the analysis pipeline
-      const result = await analyzeRequest(request);
+      const result = await analyzeRequest(request, { behavioralAnomalyScore });
 
       // Update request with decision
       const statusMap = {
@@ -93,6 +104,10 @@ export function createRequestsRouter(io: SocketIOServer): Router {
 
       // Log to audit trail
       const auditLog = auditLogger.logRequestProcessing(requestId, result);
+
+      // Update behavioral baseline after processing
+      const finalRiskScore = result.severityResult?.riskScore ?? 50;
+      updateBaseline(request.agentId, request.action, request.target, finalRiskScore);
 
       // If decision is KILL, trigger kill switch
       if (result.decision === 'KILL') {
@@ -156,9 +171,9 @@ export function createRequestsRouter(io: SocketIOServer): Router {
   // Manual kill for a flagged request
   router.post('/:id/manual-kill', async (req: Request, res: Response) => {
     try {
-      const requestId = req.params.id;
+      const requestId = getParam(req.params.id);
 
-      const request = db.getRequest(requestId);
+      const request = db.getRequest(requestId, req.authApiKeyId);
       if (!request) {
         return res.status(404).json({ error: 'Request not found' });
       }
@@ -183,17 +198,31 @@ export function createRequestsRouter(io: SocketIOServer): Router {
       });
 
       // For auditLogger.logRequestProcessing, construct a minimal PipelineState
-      const manualKillResult: Partial<PipelineState> = {
+      const manualKillResult: WatchdogStateType = {
+          request: {
+            id: request.id,
+            agentId: request.agent_id,
+            action: request.action,
+            target: request.target,
+            context: request.context ?? undefined,
+            timestamp: request.created_at,
+            metadata: undefined,
+          },
+          monitorResult: undefined,
+          analysisResult: undefined,
+          fixResult: undefined,
           decision: 'KILL',
           decisionReasoning: manualKillReason,
           processingPath: ['manualKill'], // Indicating it was a manual kill outside the auto pipeline
+          behavioralAnomalyScore: 0,
+          error: undefined,
           severityResult: { // A manual kill is a critical intervention
               overallSeverity: 'CRITICAL',
               riskScore: 100,
               reasoning: manualKillReason,
           },
       };
-      auditLogger.logRequestProcessing(requestId, manualKillResult as PipelineState);
+      auditLogger.logRequestProcessing(requestId, manualKillResult);
 
       // Emit WebSocket event for dashboard
       io.emit('killswitch:triggered', {
@@ -210,7 +239,7 @@ export function createRequestsRouter(io: SocketIOServer): Router {
         agentId: request.agent_id,
         decision: 'KILL',
         severity: manualKillResult.severityResult?.overallSeverity,
-        violationCount: db.getViolationsByRequest(requestId).length,
+        violationCount: db.getViolationsByRequest(requestId, req.authApiKeyId).length,
         processingPath: manualKillResult.processingPath,
         timestamp: new Date().toISOString(),
       });
@@ -235,7 +264,7 @@ export function createRequestsRouter(io: SocketIOServer): Router {
       const limit = parseInt(req.query.limit as string) || 100;
       const offset = parseInt(req.query.offset as string) || 0;
 
-      const requests = db.getRequests(limit, offset);
+      const requests = db.getRequests(limit, offset, req.authApiKeyId);
 
       return res.json({
         requests: requests.map((r) => ({
@@ -267,7 +296,7 @@ export function createRequestsRouter(io: SocketIOServer): Router {
   router.get('/:id', (req: Request, res: Response) => {
     try {
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const request = db.getRequest(id);
+      const request = db.getRequest(id, req.authApiKeyId);
 
       if (!request) {
         return res.status(404).json({
@@ -275,7 +304,7 @@ export function createRequestsRouter(io: SocketIOServer): Router {
         });
       }
 
-      const violations = db.getViolationsByRequest(id);
+      const violations = db.getViolationsByRequest(id, req.authApiKeyId);
 
       return res.json({
         id: request.id,

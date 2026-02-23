@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { killSwitch } from '../../services/killSwitch.js';
 import { permissions } from '../../services/permissions.js';
+import { db } from '../../db/index.js';
 import type { Server as SocketIOServer } from 'socket.io';
 
 // Helper to extract string param
@@ -11,14 +12,30 @@ function getParam(param: string | string[]): string {
 
 export function createAgentsRouter(io: SocketIOServer): Router {
   const router = Router();
+  const getScopedAgentIds = (apiKeyId?: string): string[] | null => {
+    if (!apiKeyId) return null;
+    return db.getAgentIdsByApiKey(apiKeyId);
+  };
+  const enforceAgentScope = (req: Request, res: Response, agentId: string): boolean => {
+    const scopedAgentIds = getScopedAgentIds(req.authApiKeyId);
+    if (scopedAgentIds && !scopedAgentIds.includes(agentId)) {
+      res.status(404).json({ error: 'Agent not found' });
+      return false;
+    }
+    return true;
+  };
 
   // Get all agents
-  router.get('/', (_req: Request, res: Response) => {
+  router.get('/', (req: Request, res: Response) => {
     try {
       const agents = permissions.getAll();
+      const scopedAgentIds = getScopedAgentIds(req.authApiKeyId);
+      const scopedAgents = scopedAgentIds
+        ? agents.filter((agent) => scopedAgentIds.includes(agent.agentId))
+        : agents;
 
       return res.json({
-        agents: agents.map((a) => ({
+        agents: scopedAgents.map((a) => ({
           agentId: a.agentId,
           isActive: a.isActive,
           permissions: a.permissions,
@@ -27,7 +44,7 @@ export function createAgentsRouter(io: SocketIOServer): Router {
           createdAt: a.createdAt,
           updatedAt: a.updatedAt,
         })),
-        total: agents.length,
+        total: scopedAgents.length,
       });
     } catch (error) {
       console.error('Error fetching agents:', error);
@@ -41,6 +58,7 @@ export function createAgentsRouter(io: SocketIOServer): Router {
   router.get('/:agentId', (req: Request, res: Response) => {
     try {
       const agentId = getParam(req.params.agentId);
+      if (!enforceAgentScope(req, res, agentId)) return;
       const agent = permissions.get(agentId);
       const status = killSwitch.getStatus(agentId);
 
@@ -65,6 +83,7 @@ export function createAgentsRouter(io: SocketIOServer): Router {
   router.patch('/:agentId/permissions', (req: Request, res: Response) => {
     try {
       const agentId = getParam(req.params.agentId);
+      if (!enforceAgentScope(req, res, agentId)) return;
       const parseResult = updatePermissionsSchema.safeParse(req.body);
       if (!parseResult.success) {
         return res.status(400).json({
@@ -102,6 +121,7 @@ export function createAgentsRouter(io: SocketIOServer): Router {
   router.post('/:agentId/killswitch', (req: Request, res: Response) => {
     try {
       const agentId = getParam(req.params.agentId);
+      if (!enforceAgentScope(req, res, agentId)) return;
       const parseResult = killSwitchSchema.safeParse(req.body);
       if (!parseResult.success) {
         return res.status(400).json({
@@ -132,6 +152,7 @@ export function createAgentsRouter(io: SocketIOServer): Router {
   router.post('/:agentId/restore', (req: Request, res: Response) => {
     try {
       const agentId = getParam(req.params.agentId);
+      if (!enforceAgentScope(req, res, agentId)) return;
       const parseResult = killSwitchSchema.safeParse(req.body);
       if (!parseResult.success) {
         return res.status(400).json({
@@ -159,13 +180,17 @@ export function createAgentsRouter(io: SocketIOServer): Router {
   });
 
   // Get blocked agents
-  router.get('/status/blocked', (_req: Request, res: Response) => {
+  router.get('/status/blocked', (req: Request, res: Response) => {
     try {
       const blocked = killSwitch.getBlockedAgents();
+      const scopedAgentIds = getScopedAgentIds(req.authApiKeyId);
+      const scopedBlocked = scopedAgentIds
+        ? blocked.filter((agent) => scopedAgentIds.includes(agent.agentId))
+        : blocked;
 
       return res.json({
-        blockedAgents: blocked,
-        total: blocked.length,
+        blockedAgents: scopedBlocked,
+        total: scopedBlocked.length,
       });
     } catch (error) {
       console.error('Error fetching blocked agents:', error);
@@ -204,6 +229,17 @@ export function createAgentsRouter(io: SocketIOServer): Router {
       return res.status(500).json({
         error: 'Internal server error',
       });
+    }
+  });
+
+  // Get topology data for visualization
+  router.get('/topology/data', (req: Request, res: Response) => {
+    try {
+      const topology = db.getTopologyData(50, req.authApiKeyId);
+      return res.json(topology);
+    } catch (error) {
+      console.error('Error fetching topology:', error);
+      return res.status(500).json({ error: 'Internal server error' });
     }
   });
 

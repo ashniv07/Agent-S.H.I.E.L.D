@@ -1,10 +1,23 @@
 import { Annotation } from '@langchain/langgraph';
 import type { AgentRequest, Decision, SeverityLevel } from '../types/index.js';
 
+// Risk factor for weighted scoring
+export interface RiskFactor {
+  factor: string;
+  weight: number;
+  triggered: boolean;
+  evidence: string | null;
+}
+
 // Define the state annotation for LangGraph
 export const WatchdogState = Annotation.Root({
   // Input request
   request: Annotation<AgentRequest>({
+    reducer: (_, y) => y,
+  }),
+
+  // Behavioral anomaly score (injected before pipeline)
+  behavioralAnomalyScore: Annotation<number | undefined>({
     reducer: (_, y) => y,
   }),
 
@@ -29,11 +42,14 @@ export const WatchdogState = Annotation.Root({
     reducer: (_, y) => y,
   }),
 
-  // Severity Classifier results
+  // Severity Classifier results (extended with riskFactors)
   severityResult: Annotation<{
     overallSeverity: SeverityLevel;
     riskScore: number;
     reasoning: string;
+    riskFactors?: RiskFactor[];
+    triggeredRules?: string[];
+    finalAction?: string;
   } | undefined>({
     reducer: (_, y) => y,
   }),

@@ -26,170 +26,217 @@ interface InsightsDashboardProps {
   hideHeader?: boolean;
 }
 
-const severityOrder: Array<Violation['severity']> = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
-const severityColors: Record<Violation['severity'], string> = {
-  LOW: '#16a34a',
-  MEDIUM: '#eab308',
-  HIGH: '#f97316',
-  CRITICAL: '#dc2626',
+const severityOrder: Array<Violation['severity']> = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'];
+
+const severityConfig: Record<Violation['severity'], { color: string; glow: string; label: string }> = {
+  CRITICAL: { color: '#ef4444', glow: 'rgba(239,68,68,0.25)',   label: 'Critical' },
+  HIGH:     { color: '#f97316', glow: 'rgba(249,115,22,0.25)',  label: 'High'     },
+  MEDIUM:   { color: '#f59e0b', glow: 'rgba(245,158,11,0.25)',  label: 'Medium'   },
+  LOW:      { color: '#10b981', glow: 'rgba(16,185,129,0.25)',  label: 'Low'      },
 };
 
-export function InsightsDashboard({ refreshTrigger = 0, view = 'all', hideHeader = false }: InsightsDashboardProps) {
+const decisionConfig = [
+  { key: 'APPROVE' as const, color: '#10b981', label: 'Approved' },
+  { key: 'FLAG'    as const, color: '#f59e0b', label: 'Flagged'  },
+  { key: 'KILL'    as const, color: '#ef4444', label: 'Killed'   },
+  { key: 'PENDING' as const, color: '#475569', label: 'Pending'  },
+];
+
+// Circumference of r=40 circle
+const CIRCUM = 2 * Math.PI * 40; // ≈ 251.33
+
+export function InsightsDashboard({
+  refreshTrigger = 0,
+  view = 'all',
+  hideHeader = false,
+}: InsightsDashboardProps) {
   const [stats, setStats] = useState<StatsData | null>(null);
   const [violations, setViolations] = useState<Violation[]>([]);
   const [requests, setRequests] = useState<Request[]>([]);
   const [loading, setLoading] = useState(true);
+  const [mounted, setMounted] = useState(false);
+
+  // Trigger bar animations after first paint
+  useEffect(() => {
+    const t = setTimeout(() => setMounted(true), 120);
+    return () => clearTimeout(t);
+  }, []);
 
   useEffect(() => {
     const load = async () => {
       try {
-        const [statsRes, violationsRes, requestsRes] = await Promise.all([
+        const [sRes, vRes, rRes] = await Promise.all([
           fetch('/api/audit/stats/summary'),
           fetch('/api/audit/violations/all?limit=150'),
           fetch('/api/requests?limit=150'),
         ]);
-
-        if (!statsRes.ok || !violationsRes.ok || !requestsRes.ok) {
-          throw new Error('Failed to load dashboard insights');
-        }
-
-        const statsData = (await statsRes.json()) as StatsData;
-        const violationsData = (await violationsRes.json()) as { violations: Violation[] };
-        const requestsData = (await requestsRes.json()) as { requests: Request[] };
-
-        setStats(statsData);
-        setViolations(violationsData.violations || []);
-        setRequests(requestsData.requests || []);
-      } catch (error) {
-        console.error(error);
+        if (!sRes.ok || !vRes.ok || !rRes.ok) throw new Error('Failed');
+        setStats((await sRes.json()) as StatsData);
+        setViolations(((await vRes.json()) as { violations: Violation[] }).violations || []);
+        setRequests(((await rRes.json()) as { requests: Request[] }).requests || []);
+      } catch (err) {
+        console.error(err);
       } finally {
         setLoading(false);
       }
     };
-
     setLoading(true);
     void load();
   }, [refreshTrigger]);
 
   const severityCounts = useMemo(() => {
-    const counts: Record<Violation['severity'], number> = {
-      LOW: 0,
-      MEDIUM: 0,
-      HIGH: 0,
-      CRITICAL: 0,
-    };
-    for (const violation of violations) {
-      counts[violation.severity] += 1;
-    }
-    return counts;
+    const c: Record<Violation['severity'], number> = { LOW: 0, MEDIUM: 0, HIGH: 0, CRITICAL: 0 };
+    for (const v of violations) c[v.severity] += 1;
+    return c;
   }, [violations]);
 
-  const decisionDistribution = useMemo(() => {
-    const counts = {
-      APPROVE: 0,
-      FLAG: 0,
-      KILL: 0,
-      PENDING: 0,
-    };
-    for (const request of requests) {
-      if (!request.decision) {
-        counts.PENDING += 1;
-      } else {
-        counts[request.decision] += 1;
-      }
+  const decisionDist = useMemo(() => {
+    const counts = { APPROVE: 0, FLAG: 0, KILL: 0, PENDING: 0 };
+    for (const r of requests) {
+      if (!r.decision) counts.PENDING += 1;
+      else counts[r.decision] += 1;
     }
     const total = Math.max(1, requests.length);
-    const approvePercent = (counts.APPROVE / total) * 100;
-    const flagPercent = (counts.FLAG / total) * 100;
-    const killPercent = (counts.KILL / total) * 100;
-    const pendingPercent = (counts.PENDING / total) * 100;
-
-    const chartStyle = {
-      background: `conic-gradient(
-        #16a34a 0% ${approvePercent}%,
-        #eab308 ${approvePercent}% ${approvePercent + flagPercent}%,
-        #dc2626 ${approvePercent + flagPercent}% ${approvePercent + flagPercent + killPercent}%,
-        #475569 ${approvePercent + flagPercent + killPercent}% ${approvePercent + flagPercent + killPercent + pendingPercent}%
-      )`,
-    };
-
-    return { counts, chartStyle };
+    let offset = 0;
+    const segments = decisionConfig.map((d) => {
+      const pct = (counts[d.key] / total) * 100;
+      const seg = { ...d, count: counts[d.key], pct, offset };
+      offset += pct;
+      return seg;
+    });
+    return { counts, segments, total };
   }, [requests]);
 
   if (loading || !stats) {
-    if (view === 'decisions' || view === 'severity') {
-      return <div className="h-56 animate-pulse border border-slate-700/70 bg-slate-900/30" />;
-    }
-
     return (
-      <div className="grid gap-4 lg:grid-cols-2 lg:divide-x lg:divide-slate-700/70">
-        <div className="h-56 animate-pulse border-b border-slate-800/80 pb-4 lg:border-b-0 lg:pb-0 lg:pr-5" />
-        <div className="h-56 animate-pulse lg:pl-5" />
-      </div>
+      <div
+        className="h-44 rounded-xl animate-pulse"
+        style={{ background: 'var(--c-surface-2, #161b22)', border: '1px solid var(--c-border)' }}
+      />
     );
   }
 
-  const totalViolations = Math.max(1, stats.totalViolations);
+  const totalViol = Math.max(1, stats.totalViolations);
 
+  // ── Donut chart ────────────────────────────────────────────────────────────
+  const DonutChart = ({ size = 104 }: { size?: number }) => {
+    let strokeOffset = 0;
+    return (
+      <div className="relative flex-shrink-0" style={{ width: size, height: size }}>
+        <svg
+          width={size}
+          height={size}
+          viewBox="0 0 100 100"
+          style={{ transform: 'rotate(-90deg)' }}
+        >
+          {/* Track */}
+          <circle cx="50" cy="50" r="40" fill="none" stroke="#1e293b" strokeWidth="11" />
+          {/* Segments */}
+          {decisionDist.segments.map((seg) => {
+            const dash = (seg.pct / 100) * CIRCUM;
+            const gap  = CIRCUM - dash;
+            const off  = -strokeOffset;
+            strokeOffset += dash;
+            return (
+              <circle
+                key={seg.key}
+                cx="50" cy="50" r="40"
+                fill="none"
+                stroke={seg.color}
+                strokeWidth="11"
+                strokeDasharray={`${dash} ${gap}`}
+                strokeDashoffset={off}
+                style={{ transition: 'stroke-dasharray 800ms ease' }}
+              />
+            );
+          })}
+        </svg>
+        {/* Center label */}
+        <div
+          className="absolute inset-0 flex flex-col items-center justify-center"
+          style={{ pointerEvents: 'none' }}
+        >
+          <span className="font-bold font-mono text-white leading-none" style={{ fontSize: 15 }}>
+            {stats.totalRequests}
+          </span>
+          <span className="text-slate-500 uppercase tracking-wide" style={{ fontSize: 8 }}>
+            total
+          </span>
+        </div>
+      </div>
+    );
+  };
+
+  // ── decisions view ─────────────────────────────────────────────────────────
   if (view === 'decisions') {
     return (
-      <section>
+      <section className="space-y-4">
         {!hideHeader && (
-          <div className="mb-5 flex items-center justify-between">
-            <h3 className="text-base font-semibold text-slate-100">Request Decisions</h3>
-            <span className="text-xs text-slate-400">Recent {requests.length} requests</span>
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-semibold text-slate-200">Decision Distribution</span>
+            <span className="text-xs text-slate-500">{requests.length} requests</span>
           </div>
         )}
-        <div className="flex items-center gap-6">
-          <div className="relative h-36 w-36 rounded-full" style={decisionDistribution.chartStyle}>
-            <div className="absolute inset-5 rounded-full bg-slate-900/95" />
-          </div>
-          <div className="w-full divide-y divide-slate-800/80 text-sm">
-            <p className="text-slate-300">
-              <span className="mr-2 inline-block h-2.5 w-2.5 rounded-full bg-green-600" />
-              APPROVE: {decisionDistribution.counts.APPROVE}
-            </p>
-            <p className="pt-2 text-slate-300">
-              <span className="mr-2 inline-block h-2.5 w-2.5 rounded-full bg-yellow-500" />
-              FLAG: {decisionDistribution.counts.FLAG}
-            </p>
-            <p className="pt-2 text-slate-300">
-              <span className="mr-2 inline-block h-2.5 w-2.5 rounded-full bg-red-600" />
-              KILL: {decisionDistribution.counts.KILL}
-            </p>
-            <p className="pt-2 text-slate-300">
-              <span className="mr-2 inline-block h-2.5 w-2.5 rounded-full bg-slate-500" />
-              PENDING: {decisionDistribution.counts.PENDING}
-            </p>
+        <div className="flex items-center gap-5">
+          <DonutChart />
+          <div className="flex-1 space-y-2.5">
+            {decisionDist.segments.map((seg) => (
+              <div key={seg.key} className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span
+                    className="w-2 h-2 rounded-full flex-shrink-0"
+                    style={{ background: seg.color }}
+                  />
+                  <span className="text-xs text-slate-400">{seg.label}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-mono text-slate-200">{seg.count}</span>
+                  <span className="text-[10px] text-slate-600 w-7 text-right">
+                    {seg.pct.toFixed(0)}%
+                  </span>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </section>
     );
   }
 
+  // ── severity view ──────────────────────────────────────────────────────────
   if (view === 'severity') {
     return (
-      <section>
+      <section className="space-y-4">
         {!hideHeader && (
-          <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-base font-semibold text-slate-100">Violation Severity</h3>
-            <span className="text-xs text-slate-400">{stats.totalViolations} total</span>
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-semibold text-slate-200">Violation Severity</span>
+            <span className="text-xs text-slate-500">{stats.totalViolations} total</span>
           </div>
         )}
-        <div className="divide-y divide-slate-800/80">
-          {severityOrder.map((severity) => {
-            const count = severityCounts[severity];
-            const width = `${(count / totalViolations) * 100}%`;
+        <div className="space-y-3.5">
+          {severityOrder.map((sev) => {
+            const count = severityCounts[sev];
+            const pct = (count / totalViol) * 100;
+            const cfg = severityConfig[sev];
             return (
-              <div key={severity} className="py-2 first:pt-0">
-                <div className="mb-1 flex justify-between text-xs">
-                  <span className="text-slate-300">{severity}</span>
-                  <span className="text-slate-400">{count}</span>
+              <div key={sev}>
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                      style={{ background: cfg.color }}
+                    />
+                    <span className="text-xs text-slate-400">{cfg.label}</span>
+                  </div>
+                  <span className="text-xs font-mono text-slate-300">{count}</span>
                 </div>
-                <div className="h-2.5 rounded-full bg-slate-800">
+                <div className="aw-progress-track">
                   <div
-                    className="h-2.5 rounded-full transition-all duration-500"
-                    style={{ width, backgroundColor: severityColors[severity] }}
+                    className="aw-progress-fill"
+                    style={{
+                      width: mounted ? `${pct}%` : '0%',
+                      background: `linear-gradient(90deg, ${cfg.color}70, ${cfg.color})`,
+                    }}
                   />
                 </div>
               </div>
@@ -200,57 +247,58 @@ export function InsightsDashboard({ refreshTrigger = 0, view = 'all', hideHeader
     );
   }
 
+  // ── all view ───────────────────────────────────────────────────────────────
   return (
-    <div className="grid gap-4 lg:grid-cols-2 lg:divide-x lg:divide-slate-700/70">
-      <section className="border-b border-slate-800/80 pb-5 lg:border-b-0 lg:pb-0 lg:pr-5">
-        <div className="mb-5 flex items-center justify-between">
-          <h3 className="text-base font-semibold text-slate-100">Request Decisions</h3>
-          <span className="text-xs text-slate-400">Recent {requests.length} requests</span>
+    <div className="grid gap-6 lg:grid-cols-2">
+      {/* Decisions */}
+      <section>
+        <div className="flex items-center justify-between mb-4">
+          <span className="text-sm font-semibold text-slate-200">Decisions</span>
+          <span className="text-xs text-slate-500">{requests.length}</span>
         </div>
-        <div className="flex items-center gap-6">
-          <div className="relative h-36 w-36 rounded-full" style={decisionDistribution.chartStyle}>
-            <div className="absolute inset-5 rounded-full bg-slate-900/95" />
-          </div>
-          <div className="w-full divide-y divide-slate-800/80 text-sm">
-            <p className="text-slate-300">
-              <span className="mr-2 inline-block h-2.5 w-2.5 rounded-full bg-green-600" />
-              APPROVE: {decisionDistribution.counts.APPROVE}
-            </p>
-            <p className="pt-2 text-slate-300">
-              <span className="mr-2 inline-block h-2.5 w-2.5 rounded-full bg-yellow-500" />
-              FLAG: {decisionDistribution.counts.FLAG}
-            </p>
-            <p className="pt-2 text-slate-300">
-              <span className="mr-2 inline-block h-2.5 w-2.5 rounded-full bg-red-600" />
-              KILL: {decisionDistribution.counts.KILL}
-            </p>
-            <p className="pt-2 text-slate-300">
-              <span className="mr-2 inline-block h-2.5 w-2.5 rounded-full bg-slate-500" />
-              PENDING: {decisionDistribution.counts.PENDING}
-            </p>
+        <div className="flex items-center gap-5">
+          <DonutChart size={96} />
+          <div className="flex-1 space-y-2.5">
+            {decisionDist.segments.map((seg) => (
+              <div key={seg.key} className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ background: seg.color }} />
+                  <span className="text-xs text-slate-400">{seg.label}</span>
+                </div>
+                <span className="text-xs font-mono text-slate-300">{seg.count}</span>
+              </div>
+            ))}
           </div>
         </div>
       </section>
 
-      <section className="lg:pl-5">
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-base font-semibold text-slate-100">Violation Severity</h3>
-          <span className="text-xs text-slate-400">{stats.totalViolations} total</span>
+      {/* Severity */}
+      <section>
+        <div className="flex items-center justify-between mb-4">
+          <span className="text-sm font-semibold text-slate-200">Violations</span>
+          <span className="text-xs text-slate-500">{stats.totalViolations}</span>
         </div>
-        <div className="divide-y divide-slate-800/80">
-          {severityOrder.map((severity) => {
-            const count = severityCounts[severity];
-            const width = `${(count / totalViolations) * 100}%`;
+        <div className="space-y-3">
+          {severityOrder.map((sev) => {
+            const count = severityCounts[sev];
+            const pct = (count / totalViol) * 100;
+            const cfg = severityConfig[sev];
             return (
-              <div key={severity} className="py-2 first:pt-0">
-                <div className="mb-1 flex justify-between text-xs">
-                  <span className="text-slate-300">{severity}</span>
-                  <span className="text-slate-400">{count}</span>
+              <div key={sev}>
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: cfg.color }} />
+                    <span className="text-xs text-slate-400">{cfg.label}</span>
+                  </div>
+                  <span className="text-xs font-mono text-slate-300">{count}</span>
                 </div>
-                <div className="h-2.5 rounded-full bg-slate-800">
+                <div className="aw-progress-track">
                   <div
-                    className="h-2.5 rounded-full transition-all duration-500"
-                    style={{ width, backgroundColor: severityColors[severity] }}
+                    className="aw-progress-fill"
+                    style={{
+                      width: mounted ? `${pct}%` : '0%',
+                      background: `linear-gradient(90deg, ${cfg.color}70, ${cfg.color})`,
+                    }}
                   />
                 </div>
               </div>

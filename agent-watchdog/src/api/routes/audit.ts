@@ -10,7 +10,7 @@ auditRouter.get('/', (req: Request, res: Response) => {
     const limit = parseInt(req.query.limit as string) || 100;
     const offset = parseInt(req.query.offset as string) || 0;
 
-    const logs = auditLogger.getAll(limit, offset);
+    const logs = auditLogger.getAll(limit, offset, req.authApiKeyId);
 
     return res.json({
       logs,
@@ -32,7 +32,7 @@ auditRouter.get('/', (req: Request, res: Response) => {
 auditRouter.get('/:id', (req: Request, res: Response) => {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const log = auditLogger.getById(id);
+    const log = auditLogger.getById(id, req.authApiKeyId);
 
     if (!log) {
       return res.status(404).json({
@@ -53,7 +53,7 @@ auditRouter.get('/:id', (req: Request, res: Response) => {
 auditRouter.get('/agent/:agentId', (req: Request, res: Response) => {
   try {
     const agentId = Array.isArray(req.params.agentId) ? req.params.agentId[0] : req.params.agentId;
-    const logs = auditLogger.getByAgent(agentId);
+    const logs = auditLogger.getByAgent(agentId, req.authApiKeyId);
 
     return res.json({
       agentId,
@@ -74,7 +74,7 @@ auditRouter.get('/violations/all', (req: Request, res: Response) => {
     const limit = parseInt(req.query.limit as string) || 100;
     const offset = parseInt(req.query.offset as string) || 0;
 
-    const violations = db.getViolations(limit, offset);
+    const violations = db.getViolations(limit, offset, req.authApiKeyId);
 
     return res.json({
       violations: violations.map((v) => ({
@@ -101,10 +101,38 @@ auditRouter.get('/violations/all', (req: Request, res: Response) => {
   }
 });
 
-// Get statistics
-auditRouter.get('/stats/summary', (_req: Request, res: Response) => {
+// Get audit log by request ID
+auditRouter.get('/request/:requestId', (req: Request, res: Response) => {
   try {
-    const stats = db.getStats();
+    const requestId = Array.isArray(req.params.requestId) ? req.params.requestId[0] : req.params.requestId;
+    const log = db.getAuditLogByRequest(requestId, req.authApiKeyId);
+    if (!log) {
+      return res.status(404).json({ error: 'Audit log not found for this request' });
+    }
+    return res.json({
+      id: log.id,
+      requestId: log.request_id,
+      agentId: log.agent_id,
+      action: log.action,
+      decision: log.decision,
+      reasoning: log.reasoning,
+      pipelinePath: log.pipeline_path ? JSON.parse(log.pipeline_path) : [],
+      monitorResult: log.monitor_result ? JSON.parse(log.monitor_result) : null,
+      analysisResult: log.analysis_result ? JSON.parse(log.analysis_result) : null,
+      severityResult: log.severity_result ? JSON.parse(log.severity_result) : null,
+      fixResult: log.fix_result ? JSON.parse(log.fix_result) : null,
+      timestamp: log.created_at,
+    });
+  } catch (error) {
+    console.error('Error fetching audit log by request:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get statistics
+auditRouter.get('/stats/summary', (req: Request, res: Response) => {
+  try {
+    const stats = db.getStats(req.authApiKeyId);
 
     return res.json(stats);
   } catch (error) {

@@ -17,7 +17,7 @@ const typedTexts = [
   'Audit every decision with traceable reasoning and live event streams.',
 ];
 
-type LandingTab = 'get-key' | 'login';
+type AuthModal = 'get-key' | 'login' | null;
 
 interface IntegrationConfig {
   requiresApiKey: boolean;
@@ -41,7 +41,7 @@ function App() {
   const [textIndex, setTextIndex] = useState(0);
   const [display, setDisplay] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
-  const [tab, setTab] = useState<LandingTab>('get-key');
+  const [authModal, setAuthModal] = useState<AuthModal>(null);
   const [integrationConfig, setIntegrationConfig] = useState<IntegrationConfig>({
     requiresApiKey: false,
     baseUrl: '',
@@ -49,7 +49,6 @@ function App() {
   });
   const [isDashboardAuthed, setIsDashboardAuthed] = useState(() => Boolean(localStorage.getItem(DASHBOARD_AUTH_KEY)));
   const [creatingKey, setCreatingKey] = useState(false);
-  const [keyName, setKeyName] = useState('production-agent');
   const [createdKey, setCreatedKey] = useState<NewKeyResponse | null>(null);
   const [loginKey, setLoginKey] = useState('');
   const [authError, setAuthError] = useState('');
@@ -147,21 +146,21 @@ function App() {
   };
 
   const handleCreateKey = async () => {
-    if (!keyName.trim() || creatingKey) return;
+    if (creatingKey) return;
     setCreatingKey(true);
     setAuthError('');
+    const generatedName = `external-agent-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 
     try {
       const res = await fetch('/api/keys', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: keyName.trim() }),
+        body: JSON.stringify({ name: generatedName }),
       });
       if (!res.ok) throw new Error('Unable to create API key');
       const data = await res.json() as NewKeyResponse;
       setCreatedKey(data);
       setLoginKey(data.key);
-      setTab('login');
       setIntegrationConfig((prev) => ({ ...prev, requiresApiKey: true }));
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : 'Failed to create API key');
@@ -192,6 +191,7 @@ function App() {
 
       localStorage.setItem(DASHBOARD_AUTH_KEY, loginKey.trim() || 'session');
       setIsDashboardAuthed(true);
+      setAuthModal(null);
       navigate('/dashboard/integration');
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : 'Authentication failed');
@@ -220,112 +220,25 @@ function App() {
 
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setTab('get-key')}
-              className={`magic-button-sm ${tab === 'get-key' ? 'ring-1 ring-cyan-300/45' : ''}`}
+              onClick={() => {
+                setAuthError('');
+                setAuthModal('get-key');
+              }}
+              className="magic-button-sm"
             >
               Get API Key
             </button>
             <button
-              onClick={() => setTab('login')}
-              className={`magic-button-sm ${tab === 'login' ? 'ring-1 ring-cyan-300/45' : ''}`}
+              onClick={() => {
+                setAuthError('');
+                setAuthModal('login');
+              }}
+              className="magic-button-sm"
             >
               Login
             </button>
           </div>
         </header>
-
-        <div
-          className="mb-8 rounded-xl border border-cyan-400/20 bg-slate-950/70 p-4"
-          style={{ backdropFilter: 'blur(4px)' }}
-        >
-          {tab === 'get-key' ? (
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-end gap-2">
-                <div className="min-w-[220px] flex-1">
-                  <label className="mb-1 block text-xs text-slate-400">Key Name</label>
-                  <input
-                    value={keyName}
-                    onChange={(e) => setKeyName(e.target.value)}
-                    placeholder="production-agent"
-                    className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none"
-                  />
-                </div>
-                <button
-                  onClick={() => void handleCreateKey()}
-                  disabled={!keyName.trim() || creatingKey}
-                  className="magic-button-sm disabled:opacity-40"
-                >
-                  {creatingKey ? 'Generating...' : 'Generate Key'}
-                </button>
-              </div>
-
-              <div className="grid gap-2 text-xs text-slate-300 sm:grid-cols-3">
-                <div className="rounded-md border border-slate-800 bg-slate-900/60 p-2">
-                  <p className="text-slate-500">API Base URL</p>
-                  <p className="font-mono">{integrationConfig.baseUrl || window.location.origin}</p>
-                </div>
-                <div className="rounded-md border border-slate-800 bg-slate-900/60 p-2">
-                  <p className="text-slate-500">Guard Endpoint</p>
-                  <p className="font-mono">{integrationConfig.guardEndpoint}</p>
-                </div>
-                <div className="rounded-md border border-slate-800 bg-slate-900/60 p-2">
-                  <p className="text-slate-500">Auth Header</p>
-                  <p className="font-mono">X-API-Key: aw_...</p>
-                </div>
-              </div>
-
-              {createdKey && (
-                <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3">
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <span className="text-xs font-semibold text-emerald-300">
-                      Save this key now. It will not be shown again.
-                    </span>
-                    <button
-                      onClick={() => void copyText(createdKey.key)}
-                      className="rounded border border-emerald-500/50 px-2 py-1 text-xs text-emerald-200"
-                    >
-                      Copy
-                    </button>
-                  </div>
-                  <code className="block break-all text-xs text-emerald-200">{createdKey.key}</code>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <p className="text-sm text-slate-300">
-                Authenticate with your API key to access your Integration dashboard and connect external agents.
-              </p>
-              <div className="flex flex-wrap items-end gap-2">
-                <div className="min-w-[260px] flex-1">
-                  <label className="mb-1 block text-xs text-slate-400">API Key</label>
-                  <input
-                    value={loginKey}
-                    onChange={(e) => setLoginKey(e.target.value)}
-                    placeholder="aw_xxxxxxxxxxxxxxxxx"
-                    className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none"
-                  />
-                </div>
-                <button
-                  onClick={() => void handleLogin()}
-                  disabled={authLoading || (!loginKey.trim() && integrationConfig.requiresApiKey)}
-                  className="magic-button-sm disabled:opacity-40"
-                >
-                  {authLoading ? 'Signing in...' : 'Login'}
-                </button>
-              </div>
-              {!integrationConfig.requiresApiKey && (
-                <p className="text-xs text-amber-300">
-                  No active keys yet. Generate your first API key to activate secured integrations.
-                </p>
-              )}
-            </div>
-          )}
-
-          {authError && (
-            <p className="mt-3 text-xs text-red-300">{authError}</p>
-          )}
-        </div>
 
         <section className="relative w-full overflow-hidden">
           <header className="relative flex min-h-[62vh] items-center justify-center px-2 py-10 text-center sm:min-h-[66vh] sm:py-14 md:px-8">
@@ -349,7 +262,7 @@ function App() {
                 <button
                   onClick={() => {
                     if (isDashboardAuthed) navigate('/dashboard/home');
-                    else setTab('login');
+                    else setAuthModal('login');
                   }}
                   className="magic-button"
                 >
@@ -393,6 +306,137 @@ function App() {
 
         <footer className="mt-auto pt-8 text-center text-sm text-slate-500">copyright (cp) 2026 . Agent Watchdog</footer>
       </div>
+
+      {authModal === 'get-key' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+          <div className="w-full max-w-2xl rounded-2xl border border-cyan-400/25 bg-slate-950 p-8">
+            <div className="mx-auto w-full max-w-[720px]">
+            <div className="flex items-center justify-between px-5 py-5">
+              <h2 className="mt-4  text-3xl font-semibold text-slate-100">Get API Key</h2>
+              <button onClick={() => setAuthModal(null)} className="pr-6 pl-5 ml-4 mr-4 text-2xl text-slate-400">X</button>
+            </div>
+
+            <p className="mb-10 mt-8 px-2 text-center text-[30px] text-slate-400">
+              Key name is generated automatically. Use this key in your external app via <code>X-API-Key</code>.
+            </p>
+
+            <div className="mb-5 grid gap-6 px-3 text-sm text-slate-300 sm:grid-cols-3">
+              <div className="min-h-[140px] rounded-md border border-slate-800 bg-slate-900/60 p-4">
+                <p className="mb-3 text-sm text-slate-500">API Base URL</p>
+                <p className="font-mono text-sm break-all">{integrationConfig.baseUrl || window.location.origin}</p>
+              </div>
+              <div className="min-h-[140px] rounded-md border border-slate-800 bg-slate-900/60 p-4">
+                <p className="mb-3 text-sm text-slate-500">Guard Endpoint</p>
+                <p className="font-mono text-sm break-all">{integrationConfig.guardEndpoint}</p>
+              </div>
+              <div className="min-h-[140px] rounded-md border border-slate-800 bg-slate-900/60 p-4">
+                <p className="mb-3 text-sm text-slate-500">Auth Header</p>
+                <p className="font-mono text-sm break-all">X-API-Key: aw_...</p>
+              </div>
+            </div>
+
+            <div className="mb-4  flex justify-center px-6">
+              <button
+                onClick={() => void handleCreateKey()}
+                disabled={creatingKey}
+                className="magic-button-sm px-5 py-5 text-s disabled:opacity-40"
+              >
+                {creatingKey ? 'Generating...' : 'Generate Key'}
+              </button>
+            </div>
+
+            {createdKey && (
+  <div className="mt-5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-6">
+    <div className="flex items-center justify-between mb-6">
+      <span className="text-sm font-semibold text-emerald-300">
+        Save this key now. It will not be shown again.
+      </span>
+      <button
+        onClick={() => void copyText(createdKey.key)}
+        className="rounded border border-emerald-500/50 px-4 py-2 text-sm text-emerald-200 hover:bg-emerald-500/20 transition-colors"
+      >
+        Copy
+      </button>
+    </div>
+    
+    <div className="mb-6">
+      <code className="block break-all rounded bg-emerald-500/5 p-4 text-sm text-emerald-200 border border-emerald-500/20">
+        {createdKey.key}
+      </code>
+    </div>
+    
+    <button
+      onClick={() => {
+        setAuthError('');
+        setAuthModal('login');
+      }}
+      className="magic-button-sm w-full py-3.5 text-sm font-medium"
+    >
+      Continue to Login
+    </button>
+  </div>
+)}
+
+            {authError && <p className="mt-10 text-sm text-red-300">{authError}</p>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {authModal === 'login' && (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+    <div className="w-full max-w-md rounded-2xl border border-cyan-400/25 bg-slate-950 shadow-2xl shadow-cyan-900/10">
+      <div className="p-12">
+        <div className="flex items-center justify-between pb-8 border-b border-slate-800">
+          <h2 className="text-xl font-semibold text-slate-100">Login</h2>
+          <button onClick={() => setAuthModal(null)} className="text-sm text-slate-400 hover:text-slate-300 transition-colors">
+            Close
+          </button>
+        </div>
+
+        <div className="space-y-8 pt-10">
+          <p className="text-sm text-slate-400 leading-relaxed">
+            Authenticate with your API key to access the integration dashboard.
+          </p>
+
+          <div className="space-y-3">
+            <label className="block text-sm text-slate-300 font-medium">API Key</label>
+            <input
+              value={loginKey}
+              onChange={(e) => setLoginKey(e.target.value)}
+              placeholder="aw_xxxxxxxxxxxxxxxxx"
+              className="w-full rounded-lg border border-slate-700 bg-slate-900 px-4 py-4 text-base text-slate-100 outline-none focus:border-cyan-400/50 focus:ring-1 focus:ring-cyan-400/50 transition-all"
+            />
+          </div>
+
+          <button
+            onClick={() => void handleLogin()}
+            disabled={authLoading || (!loginKey.trim() && integrationConfig.requiresApiKey)}
+            className="magic-button-sm w-full py-4 text-sm font-medium disabled:opacity-40 mt-2"
+          >
+            {authLoading ? 'Signing in...' : 'Login'}
+          </button>
+
+          {!integrationConfig.requiresApiKey && (
+            <div className="p-5 rounded-lg bg-amber-500/10 border border-amber-500/20">
+              <p className="text-sm text-amber-300">
+                No active keys yet. Generate your first API key first.
+              </p>
+            </div>
+          )}
+          
+          {authError && (
+            <div className="p-5 rounded-lg bg-red-500/10 border border-red-500/20">
+              <p className="text-sm text-red-300">
+                {authError}
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  </div>
+)}
     </div>
   );
 }

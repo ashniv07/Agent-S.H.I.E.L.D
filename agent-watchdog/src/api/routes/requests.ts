@@ -113,7 +113,8 @@ export function createRequestsRouter(io: SocketIOServer): Router {
       if (result.decision === 'KILL') {
         killSwitch.trigger(
           request.agentId,
-          `Automatic kill switch triggered. ${result.decisionReasoning}`
+          `Automatic kill switch triggered. ${result.decisionReasoning}`,
+          requestId
         );
 
         io.emit('killswitch:triggered', {
@@ -187,7 +188,7 @@ export function createRequestsRouter(io: SocketIOServer): Router {
 
       // Trigger the kill switch
       const manualKillReason = `Manual kill initiated by human intervention for request ${requestId}.`;
-      killSwitch.trigger(request.agent_id, manualKillReason);
+      killSwitch.trigger(request.agent_id, manualKillReason, requestId);
 
       // Update request status in DB
       db.updateRequest(requestId, {

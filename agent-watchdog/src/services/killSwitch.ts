@@ -16,7 +16,7 @@ class KillSwitchService {
    * Trigger the kill switch for a specific agent
    * This blocks all future requests from the agent
    */
-  trigger(agentId: string, reason: string): KillSwitchResult {
+  trigger(agentId: string, reason: string, requestId?: string): KillSwitchResult {
     const timestamp = new Date().toISOString();
     const existing = db.getAgentPermission(agentId);
     const previousState = existing?.is_active === 1;
@@ -31,7 +31,7 @@ class KillSwitchService {
     });
 
     // Log the kill switch action
-    auditLogger.logKillSwitch(agentId, reason, previousState);
+    auditLogger.logKillSwitch(agentId, reason, previousState, requestId);
 
     return {
       success: true,
@@ -46,7 +46,7 @@ class KillSwitchService {
   /**
    * Restore an agent's permissions (disable kill switch)
    */
-  restore(agentId: string, reason: string): KillSwitchResult {
+  restore(agentId: string, reason: string, requestId?: string): KillSwitchResult {
     const timestamp = new Date().toISOString();
     const existing = db.getAgentPermission(agentId);
     const previousState = existing?.is_active === 1;
@@ -61,7 +61,7 @@ class KillSwitchService {
     });
 
     // Log the restoration
-    auditLogger.logRestore(agentId, reason, previousState);
+    auditLogger.logRestore(agentId, reason, previousState, requestId);
 
     return {
       success: true,

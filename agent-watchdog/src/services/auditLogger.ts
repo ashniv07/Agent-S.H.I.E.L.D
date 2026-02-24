@@ -4,6 +4,25 @@ import type { WatchdogStateType } from '../agents/state.js';
 import type { Decision, AuditLog } from '../types/index.js';
 
 class AuditLoggerService {
+  private getOrCreateSystemRequestId(agentId: string, action: string, reason: string): string {
+    const systemRequestId = uuidv4();
+    db.createRequest({
+      id: systemRequestId,
+      api_key_id: null,
+      agent_id: agentId,
+      action,
+      target: `system://${action.toLowerCase()}`,
+      context: reason,
+      metadata: JSON.stringify({ systemEvent: true }),
+    });
+    db.updateRequest(systemRequestId, {
+      status: 'approved',
+      decision: 'APPROVE',
+      decision_reasoning: reason,
+      processed_at: new Date().toISOString(),
+    });
+    return systemRequestId;
+  }
   /**
    * Log a complete request processing result
    */
@@ -48,11 +67,11 @@ class AuditLoggerService {
   /**
    * Log a kill switch activation
    */
-  logKillSwitch(agentId: string, reason: string, previousState: boolean): void {
-    const systemRequestId = uuidv4();
+  logKillSwitch(agentId: string, reason: string, previousState: boolean, requestId?: string): void {
+    const resolvedRequestId = requestId ?? this.getOrCreateSystemRequestId(agentId, 'KILL_SWITCH_ACTIVATED', reason);
     db.createAuditLog({
       id: uuidv4(),
-      request_id: null,
+      request_id: resolvedRequestId,
       agent_id: agentId,
       action: 'KILL_SWITCH_ACTIVATED',
       decision: 'KILL',
@@ -68,11 +87,11 @@ class AuditLoggerService {
   /**
    * Log a kill switch restoration
    */
-  logRestore(agentId: string, reason: string, previousState: boolean): void {
-    const systemRequestId = uuidv4();
+  logRestore(agentId: string, reason: string, previousState: boolean, requestId?: string): void {
+    const resolvedRequestId = requestId ?? this.getOrCreateSystemRequestId(agentId, 'KILL_SWITCH_DEACTIVATED', reason);
     db.createAuditLog({
       id: uuidv4(),
-      request_id: null,
+      request_id: resolvedRequestId,
       agent_id: agentId,
       action: 'KILL_SWITCH_DEACTIVATED',
       decision: 'APPROVE',

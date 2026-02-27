@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { authFetch } from '../utils/api';
 import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
 import SortRoundedIcon from '@mui/icons-material/SortRounded';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
@@ -63,7 +64,7 @@ export function RequestList({ onSelectRequest, refreshTrigger }: RequestListProp
 
   const fetchRequests = async () => {
     try {
-      const response = await fetch('/api/requests?limit=50');
+      const response = await authFetch('/api/requests?limit=50');
       if (!response.ok) throw new Error('Failed to fetch requests');
       const data = await response.json() as { requests: Request[] };
       setRequests(data.requests);

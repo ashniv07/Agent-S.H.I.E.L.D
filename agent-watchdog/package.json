@@ -1,5 +1,5 @@
 {
-  "name": "agent-watchdog",
+  "name": "agent-shield",
   "version": "1.0.0",
   "description": "Real-time AI governance and security layer using LangGraph multi-agent architecture",
   "main": "dist/index.js",

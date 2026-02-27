@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { ViolationCard } from './ViolationCard.js';
 import { useWebSocket } from '../hooks/useWebSocket.js';
+import { authFetch } from '../utils/api';
 
 interface Violation {
   id: string;
@@ -35,7 +36,7 @@ export function ViolationsPanel({ refreshTrigger = 0 }: ViolationsPanelProps) {
 
   const fetchViolations = useCallback(async () => {
     try {
-      const response = await fetch('/api/audit/violations/all?limit=120');
+      const response = await authFetch('/api/audit/violations/all?limit=120');
       if (!response.ok) throw new Error('Failed to fetch violations');
       const data = (await response.json()) as { violations: Violation[] };
       setViolations(data.violations || []);

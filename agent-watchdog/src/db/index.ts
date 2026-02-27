@@ -366,11 +366,11 @@ class DatabaseService {
     }
 
     return {
-      totalRequests: requestStats.total,
+      totalRequests: requestStats.total || 0,
       approvedRequests: requestStats.approved || 0,
       flaggedRequests: requestStats.flagged || 0,
       killedRequests: requestStats.killed || 0,
-      totalViolations: violationStats.total,
+      totalViolations: violationStats.total || 0,
       criticalViolations: violationStats.critical || 0,
       activeAgents: agentStats?.active || 0,
       blockedAgents: agentStats?.blocked || 0,

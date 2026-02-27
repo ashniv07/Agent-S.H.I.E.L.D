@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { authFetch } from '../utils/api';
 
 interface StatsData {
   totalRequests: number;
@@ -66,9 +67,9 @@ export function InsightsDashboard({
     const load = async () => {
       try {
         const [sRes, vRes, rRes] = await Promise.all([
-          fetch('/api/audit/stats/summary'),
-          fetch('/api/audit/violations/all?limit=150'),
-          fetch('/api/requests?limit=150'),
+          authFetch('/api/audit/stats/summary'),
+          authFetch('/api/audit/violations/all?limit=150'),
+          authFetch('/api/requests?limit=150'),
         ]);
         if (!sRes.ok || !vRes.ok || !rRes.ok) throw new Error('Failed');
         setStats((await sRes.json()) as StatsData);

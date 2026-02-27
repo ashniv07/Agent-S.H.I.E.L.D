@@ -1,4 +1,4 @@
--- Agent Watchdog Initial Schema
+-- agent S.H.I.E.L.D Initial Schema
 
 -- Requests table: stores incoming agent requests
 CREATE TABLE IF NOT EXISTS requests (

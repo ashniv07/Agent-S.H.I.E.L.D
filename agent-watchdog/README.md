@@ -1,4 +1,4 @@
-# Agent Watchdog
+# agent S.H.I.E.L.D
 
 Real-time AI governance and security layer using LangGraph multi-agent architecture with Anthropic Claude.
 

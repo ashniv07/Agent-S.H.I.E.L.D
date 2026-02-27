@@ -56,7 +56,9 @@ class AuditLoggerService {
           description: violation.description,
           severity: severityResult?.overallSeverity || 'MEDIUM',
           evidence: violation.evidence,
-          suggested_fix: fixResult?.suggestions?.[0]?.description || null,
+          suggested_fix: fixResult?.suggestions?.length
+            ? fixResult.suggestions.map((s) => `${s.action}: ${s.description}`).join('. ')
+            : null,
         });
       }
     }

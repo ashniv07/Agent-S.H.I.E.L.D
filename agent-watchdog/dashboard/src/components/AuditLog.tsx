@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useWebSocket } from '../hooks/useWebSocket.js';
 import { AuditTechnicalView } from './AuditTechnicalView.js';
 import { AuditBusinessView } from './AuditBusinessView.js';
+import { authFetch } from '../utils/api';
 
 interface AuditLogEntry {
   id: string;
@@ -31,7 +32,7 @@ const decisionStyles: Record<string, { bg: string; text: string; border: string;
 };
 
 function fetchFullLog(id: string): Promise<AuditLogEntry | null> {
-  return fetch(`/api/audit/${id}`)
+  return authFetch(`/api/audit/${id}`)
     .then((r) => (r.ok ? r.json() : null))
     .catch(() => null);
 }
@@ -46,7 +47,7 @@ export function AuditLog({ refreshTrigger }: AuditLogProps) {
 
   const fetchLogs = useCallback(async () => {
     try {
-      const response = await fetch('/api/audit?limit=30');
+      const response = await authFetch('/api/audit?limit=30');
       if (!response.ok) throw new Error('Failed to fetch audit logs');
       const data = await response.json();
       setLogs(data.logs);

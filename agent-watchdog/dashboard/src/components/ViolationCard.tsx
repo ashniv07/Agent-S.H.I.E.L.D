@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { RiskScoreCard } from './RiskScoreCard.js';
 import { PipelineTrace } from './PipelineTrace.js';
+import { authFetch } from '../utils/api';
 
 interface Violation {
   id: string;
@@ -73,7 +74,7 @@ export function ViolationCard({ violation }: ViolationCardProps) {
     }
     setLoadingAudit(true);
     try {
-      const res = await fetch(`/api/audit/request/${violation.requestId}`);
+      const res = await authFetch(`/api/audit/request/${violation.requestId}`);
       if (res.ok) {
         setAuditData((await res.json()) as AuditData);
       }
@@ -121,12 +122,29 @@ export function ViolationCard({ violation }: ViolationCardProps) {
           </div>
         )}
 
-        {violation.suggestedFix && (
-          <div className="mt-2 p-2 bg-blue-900/30 rounded text-xs">
-            <span className="text-blue-400 font-semibold">Suggested Fix: </span>
-            <span className="text-gray-300">{violation.suggestedFix}</span>
-          </div>
-        )}
+        {violation.suggestedFix && (() => {
+          const fixPoints = violation.suggestedFix
+            .split(/(?<=\.)\s+/)
+            .map((s) => s.trim())
+            .filter(Boolean);
+          return (
+            <div className="mt-2 p-2 bg-blue-900/30 rounded text-xs">
+              <span className="text-blue-400 font-semibold block mb-1">Suggested Fix:</span>
+              {fixPoints.length > 1 ? (
+                <ul className="space-y-1">
+                  {fixPoints.map((point, i) => (
+                    <li key={i} className="flex items-start gap-1.5 text-gray-300">
+                      <span className="text-blue-500 flex-shrink-0 mt-0.5">•</span>
+                      <span>{point.endsWith('.') ? point : `${point}.`}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <span className="text-gray-300">{violation.suggestedFix}</span>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {/* Expanded inspection panel */}

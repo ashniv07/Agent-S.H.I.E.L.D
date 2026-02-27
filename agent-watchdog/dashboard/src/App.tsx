@@ -8,8 +8,7 @@ import { DashboardApp } from './components/DashboardApp';
 import { AgentFlow } from './components/AgentFlow';
 import { SpotlightCard } from './components/SpotlightCard';
 import botIcon from './styles/icons/bot-icon.png';
-
-const DASHBOARD_AUTH_KEY = 'aw_dashboard_api_key';
+import { DASHBOARD_AUTH_KEY } from './utils/api';
 
 const typedTexts = [
   'Monitor every request through a multi-agent security pipeline.',
@@ -34,6 +33,7 @@ interface NewKeyResponse {
 }
 
 function App() {
+  const loginRequiredMessage = 'Please login to access dashboard pages.';
   const location = useLocation();
   const navigate = useNavigate();
   const started = location.pathname.startsWith('/dashboard');
@@ -54,6 +54,14 @@ function App() {
   const [authError, setAuthError] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
 
+  // Keep auth state in sync with persisted key (covers same-tab logout/login).
+  useEffect(() => {
+    const authed = Boolean(localStorage.getItem(DASHBOARD_AUTH_KEY));
+    if (authed !== isDashboardAuthed) {
+      setIsDashboardAuthed(authed);
+    }
+  }, [location.pathname, isDashboardAuthed]);
+
   useEffect(() => {
     const load = async () => {
       try {
@@ -69,7 +77,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (started && !isDashboardAuthed) {
+    if (!isDashboardAuthed && started) {
       navigate('/', { replace: true });
     }
   }, [started, isDashboardAuthed, navigate]);
@@ -200,7 +208,7 @@ function App() {
     }
   };
 
-  if (started) {
+  if (started && isDashboardAuthed) {
     return <DashboardApp />;
   }
 
@@ -210,11 +218,11 @@ function App() {
         <header className="mb-5 flex items-start justify-between gap-3 text-cyan-300 sm:mb-6">
           <div className="flex items-center gap-3">
             <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-cyan-400/35 bg-cyan-400/10 text-base font-bold">
-              <img src={botIcon} alt="Agent Watchdog" className="h-5 w-5 object-contain" />
+              <img src={botIcon} alt="agent S.H.I.E.L.D" className="h-5 w-5 object-contain" />
             </span>
             <div>
-              <p className="text-lg font-semibold tracking-tight text-slate-100">Agent Watchdog</p>
-              <p className="text-xs text-slate-400">SaaS integration security for external AI agents</p>
+              <p className="text-lg font-semibold tracking-tight text-slate-100">agent S.H.I.E.L.D</p>
+              <p className="text-xs text-slate-400">Visibility into every decision your AI makes.</p>
             </div>
           </div>
 
@@ -262,7 +270,10 @@ function App() {
                 <button
                   onClick={() => {
                     if (isDashboardAuthed) navigate('/dashboard/home');
-                    else setAuthModal('login');
+                    else {
+                      setAuthError(loginRequiredMessage);
+                      setAuthModal('login');
+                    }
                   }}
                   className="magic-button"
                 >
@@ -285,7 +296,7 @@ function App() {
                 <div key={`${item.title}-${index}`} className="marquee-item">
                   <SpotlightCard title={item.title} description={item.description} icon={item.icon}>
                     <p className="mt-5 text-xs uppercase tracking-[0.16em] text-cyan-300/80">
-                      Agent Watchdog
+                      agent S.H.I.E.L.D
                     </p>
                   </SpotlightCard>
                 </div>
@@ -304,7 +315,7 @@ function App() {
           </div>
         </section>
 
-        <footer className="mt-auto pt-8 text-center text-sm text-slate-500">copyright (cp) 2026 . Agent Watchdog</footer>
+        <footer className="mt-auto pt-8 text-center text-sm text-slate-500">copyright (cp) 2026 . agent S.H.I.E.L.D</footer>
       </div>
 
       {authModal === 'get-key' && (
@@ -415,6 +426,16 @@ function App() {
             className="magic-button-sm w-full py-4 text-sm font-medium disabled:opacity-40 mt-2"
           >
             {authLoading ? 'Signing in...' : 'Login'}
+          </button>
+
+          <button
+            onClick={() => {
+              setAuthError('');
+              setAuthModal('get-key');
+            }}
+            className="w-full rounded-lg border border-slate-700 px-4 py-3 text-sm text-slate-300 transition-colors hover:border-cyan-400/40 hover:text-cyan-200"
+          >
+            Don't have an API key? Get one
           </button>
 
           {!integrationConfig.requiresApiKey && (

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { authFetch } from '../utils/api';
 
 interface StatsData {
   totalRequests: number;
@@ -25,7 +26,7 @@ export function Stats({ refreshTrigger }: StatsProps) {
 
   const fetchStats = async () => {
     try {
-      const response = await fetch('/api/audit/stats/summary');
+      const response = await authFetch('/api/audit/stats/summary');
       if (!response.ok) throw new Error('Failed to fetch stats');
       const data = await response.json();
       setStats(data);

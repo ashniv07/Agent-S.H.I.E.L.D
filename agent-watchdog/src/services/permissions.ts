@@ -15,11 +15,11 @@ class PermissionService {
     const row = db.getAgentPermission(agentId);
 
     if (!row) {
-      // Return default permissions for unknown agents
+      // Return default permissions for agents not yet in the DB
       return {
         agentId,
         isActive: true,
-        permissions: ['read', 'write'],
+        permissions: ['read', 'write', 'network', 'email', 'database'],
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -108,12 +108,28 @@ class PermissionService {
   }
 
   /**
-   * Register a new agent with default permissions
+   * Register a new agent with default permissions.
+   * Includes common read/write/network/email/database permissions so that
+   * legitimate business actions reach the security pipeline for analysis
+   * rather than being hard-blocked at the permission gate.
    */
-  register(agentId: string, permissions: string[] = ['read', 'write']): AgentPermission {
+  register(agentId: string, permissions: string[] = ['read', 'write', 'network', 'email', 'database']): AgentPermission {
     const existing = db.getAgentPermission(agentId);
 
     if (existing) {
+      // Ensure the agent has at least the current default permissions.
+      // This upgrades agents that were registered before the defaults were expanded.
+      const current: string[] = JSON.parse(existing.permissions || '[]');
+      const merged = [...new Set([...current, ...permissions])];
+      if (merged.length !== current.length) {
+        db.upsertAgentPermission({
+          agent_id: agentId,
+          is_active: existing.is_active,
+          permissions: JSON.stringify(merged),
+          blocked_at: existing.blocked_at,
+          blocked_reason: existing.blocked_reason,
+        });
+      }
       return this.get(agentId);
     }
 
@@ -144,27 +160,58 @@ class PermissionService {
       };
     }
 
-    // Map actions to required permissions
+    // Map actions to required permissions.
+    // Covers both OS-level actions and common business/agent actions.
     const actionPermissionMap: Record<string, string[]> = {
+      // File system
       read_file: ['read', '*'],
       write_file: ['write', '*'],
       delete_file: ['delete', 'write', '*'],
+      // Execution
       execute_command: ['execute', '*'],
+      // Network / communication
       network_request: ['network', '*'],
-      database_query: ['database', '*'],
+      send_email:      ['email', 'network', '*'],
+      send_message:    ['email', 'network', '*'],
+      make_request:    ['network', '*'],
+      // Data
+      database_query:  ['database', '*'],
+      read_database:   ['database', 'read', '*'],
+      write_database:  ['database', 'write', '*'],
+      // Document / reporting
+      read_document:   ['read', '*'],
+      write_document:  ['write', '*'],
+      create_report:   ['write', '*'],
+      access_file:     ['read', '*'],
+      download_file:   ['read', 'network', '*'],
+      upload_file:     ['write', 'network', '*'],
+      // Calendar / scheduling
+      create_event:    ['write', '*'],
+      read_calendar:   ['read', '*'],
+      // Generic search / lookup
+      search:          ['read', '*'],
+      lookup:          ['read', '*'],
+      query:           ['read', 'database', '*'],
     };
 
-    const requiredPerms = actionPermissionMap[action] || [action, '*'];
-    const hasPermission = requiredPerms.some(p =>
-      agentPerms.permissions.includes(p)
-    );
+    const requiredPerms = actionPermissionMap[action];
 
-    if (!hasPermission) {
-      return {
-        allowed: false,
-        reason: `Agent ${agentId} lacks permission for action: ${action}. Required: ${requiredPerms.join(' or ')}`,
-      };
+    if (requiredPerms) {
+      // Known action — check that the agent holds at least one required permission
+      const hasPermission = requiredPerms.some(p =>
+        agentPerms.permissions.includes(p)
+      );
+      if (!hasPermission) {
+        return {
+          allowed: false,
+          reason: `Agent ${agentId} lacks permission for action: ${action}. Required: ${requiredPerms.join(' or ')}`,
+        };
+      }
     }
+    // Unknown / custom action — allow it through so the security pipeline
+    // (monitor → analyzer → classifier → decision engine) can assess it.
+    // Hard-blocking here would prevent legitimate domain-specific actions from
+    // ever reaching analysis.
 
     return { allowed: true };
   }

@@ -14,7 +14,7 @@ export function setupWebSocket(httpServer: HTTPServer): SocketIOServer {
 
     // Send welcome message
     socket.emit('connected', {
-      message: 'Connected to Agent Watchdog',
+      message: 'Connected to agent S.H.I.E.L.D',
       socketId: socket.id,
       timestamp: new Date().toISOString(),
     });

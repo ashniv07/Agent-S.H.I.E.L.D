@@ -17,8 +17,7 @@ export async function decisionEngine(
   // Decision logic based on thresholds and severity
   if (
     riskScore >= policies.killThreshold ||
-    severity === 'CRITICAL' ||
-    (violationCount >= 3 && (severity === 'HIGH' || severity === 'CRITICAL'))
+    severity === 'CRITICAL'
   ) {
     decision = 'KILL';
     reasoning = buildReasoning('KILL', {

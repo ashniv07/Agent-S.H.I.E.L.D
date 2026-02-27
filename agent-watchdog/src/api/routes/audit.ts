@@ -40,7 +40,16 @@ auditRouter.get('/:id', (req: Request, res: Response) => {
       });
     }
 
-    return res.json(log);
+    // Fetch raw row to include parsed pipeline JSON fields (severityResult, etc.)
+    const rawRow = db.getAuditLog(id);
+    return res.json({
+      ...log,
+      pipelinePath: rawRow?.pipeline_path ? JSON.parse(rawRow.pipeline_path) : [],
+      monitorResult: rawRow?.monitor_result ? JSON.parse(rawRow.monitor_result) : null,
+      analysisResult: rawRow?.analysis_result ? JSON.parse(rawRow.analysis_result) : null,
+      severityResult: rawRow?.severity_result ? JSON.parse(rawRow.severity_result) : null,
+      fixResult: rawRow?.fix_result ? JSON.parse(rawRow.fix_result) : null,
+    });
   } catch (error) {
     console.error('Error fetching audit log:', error);
     return res.status(500).json({
@@ -129,7 +138,7 @@ auditRouter.get('/request/:requestId', (req: Request, res: Response) => {
   }
 });
 
-// Get statistics
+// Get statistics scoped to the authenticated API key/session
 auditRouter.get('/stats/summary', (req: Request, res: Response) => {
   try {
     const stats = db.getStats(req.authApiKeyId);

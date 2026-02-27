@@ -1,5 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useWebSocket } from '../hooks/useWebSocket.js';
+import { authFetch } from '../utils/api';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import BlockOutlinedIcon from '@mui/icons-material/BlockOutlined';
+import RefreshOutlinedIcon from '@mui/icons-material/RefreshOutlined';
 
 interface Agent {
   agentId: string;
@@ -9,23 +13,20 @@ interface Agent {
 }
 
 interface KillSwitchProps {
-  onKillSwitch?: (agentId: string, reason: string) => void;
   refreshTrigger?: number;
 }
 
-export function KillSwitch({ onKillSwitch, refreshTrigger }: KillSwitchProps) {
+export function KillSwitch({ refreshTrigger }: KillSwitchProps) {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedAgent, setSelectedAgent] = useState<string>('');
-  const [reason, setReason] = useState('');
-  const [submitting, setSubmitting] = useState(false);
+  const [restoring, setRestoring] = useState<string | null>(null);
   const { lastEvent } = useWebSocket();
 
   const fetchAgents = useCallback(async () => {
     try {
-      const response = await fetch('/api/agents');
+      const response = await authFetch('/api/agents');
       if (!response.ok) throw new Error('Failed to fetch agents');
-      const data = await response.json();
+      const data = await response.json() as { agents: Agent[] };
       setAgents(data.agents);
     } catch (err) {
       console.error('Error fetching agents:', err);
@@ -38,156 +39,132 @@ export function KillSwitch({ onKillSwitch, refreshTrigger }: KillSwitchProps) {
     void fetchAgents();
   }, [refreshTrigger, fetchAgents]);
 
-  // Real-time: refresh when kill switch fires or agent status changes
   useEffect(() => {
     if (!lastEvent) return;
-    if (
-      lastEvent.type === 'killswitch:triggered' ||
-      lastEvent.type === 'agent:status'
-    ) {
+    if (lastEvent.type === 'killswitch:triggered' || lastEvent.type === 'agent:status') {
       void fetchAgents();
     }
   }, [lastEvent, fetchAgents]);
 
-  const handleKillSwitch = async () => {
-    if (!selectedAgent || !reason) return;
-    setSubmitting(true);
-    try {
-      const response = await fetch(`/api/agents/${selectedAgent}/killswitch`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason }),
-      });
-      if (!response.ok) throw new Error('Failed to trigger kill switch');
-      onKillSwitch?.(selectedAgent, reason);
-      setSelectedAgent('');
-      setReason('');
-      void fetchAgents();
-    } catch (err) {
-      console.error('Error triggering kill switch:', err);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   const handleRestore = async (agentId: string) => {
-    setSubmitting(true);
+    setRestoring(agentId);
     try {
-      const response = await fetch(`/api/agents/${agentId}/restore`, {
+      const response = await authFetch(`/api/agents/${agentId}/restore`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason: 'Manual restoration via dashboard' }),
+        body: JSON.stringify({ reason: 'Restored via dashboard after review' }),
       });
       if (!response.ok) throw new Error('Failed to restore agent');
       void fetchAgents();
     } catch (err) {
       console.error('Error restoring agent:', err);
     } finally {
-      setSubmitting(false);
+      setRestoring(null);
     }
   };
 
-  const handleEmergencyKillAll = async () => {
-    if (!confirm('Are you sure you want to block ALL agents? This will stop all agent activity.')) return;
-    setSubmitting(true);
-    try {
-      const response = await fetch('/api/agents/emergency/kill-all', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason: 'Emergency kill all triggered via dashboard' }),
-      });
-      if (!response.ok) throw new Error('Failed to trigger emergency kill');
-      void fetchAgents();
-    } catch (err) {
-      console.error('Error triggering emergency kill:', err);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const activeAgents = agents.filter((a) => a.isActive);
+  const activeAgents  = agents.filter((a) =>  a.isActive);
   const blockedAgents = agents.filter((a) => !a.isActive);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-32">
+        <div className="w-6 h-6 rounded-full border-2 border-cyan-500/30 border-t-cyan-400 animate-spin" />
+      </div>
+    );
+  }
+
+  if (agents.length === 0) {
+    return (
+      <div
+        className="rounded-xl p-8 text-center"
+        style={{ border: '1px dashed var(--c-border)', color: '#475569' }}
+      >
+        <p className="text-sm">No agents registered yet</p>
+        <p className="text-xs mt-1" style={{ color: '#334155' }}>
+          Agents appear here once they submit their first request
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
-      {/* Real-time indicator */}
-      <div className="flex items-center gap-1.5 text-xs text-gray-500">
-        <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-        Live — updates automatically
-      </div>
 
-      {/* Emergency Kill All */}
-      <button
-        onClick={handleEmergencyKillAll}
-        disabled={submitting || activeAgents.length === 0}
-        className="w-full py-3 bg-red-600 hover:bg-red-700 disabled:bg-gray-700 disabled:cursor-not-allowed rounded-lg text-white font-bold transition-colors flex items-center justify-center gap-2"
-      >
-        <span className="text-xl">⚠</span>
-        EMERGENCY: KILL ALL AGENTS
-      </button>
-
-      {/* Individual Kill Switch */}
-      <div className="p-4 bg-gray-800 rounded-lg">
-        <h3 className="text-sm font-semibold text-gray-400 mb-3">Kill Switch — Single Agent</h3>
-        <div className="space-y-3">
-          <select
-            value={selectedAgent}
-            onChange={(e) => setSelectedAgent(e.target.value)}
-            className="w-full p-2 bg-gray-700 rounded border border-gray-600 text-gray-100 focus:border-red-500 focus:outline-none"
-          >
-            <option value="">Select an agent...</option>
-            {activeAgents.map((agent) => (
-              <option key={agent.agentId} value={agent.agentId}>
-                {agent.agentId}
-              </option>
-            ))}
-          </select>
-          <input
-            type="text"
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder="Reason for blocking..."
-            className="w-full p-2 bg-gray-700 rounded border border-gray-600 text-gray-100 focus:border-red-500 focus:outline-none"
-          />
-          <button
-            onClick={handleKillSwitch}
-            disabled={!selectedAgent || !reason || submitting}
-            className="w-full py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-700 disabled:cursor-not-allowed rounded text-white font-semibold transition-colors"
-          >
-            {submitting ? 'Processing...' : 'Trigger Kill Switch'}
-          </button>
+      {/* Live badge */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5 text-xs" style={{ color: '#475569' }}>
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+          Live — auto-updates
         </div>
+        <button
+          onClick={() => void fetchAgents()}
+          className="flex items-center gap-1 text-[11px] transition-colors"
+          style={{ color: '#475569' }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = '#94a3b8'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = '#475569'; }}
+        >
+          <RefreshOutlinedIcon style={{ fontSize: 13 }} />
+          Refresh
+        </button>
       </div>
 
-      {/* Blocked Agents */}
+      {/* Blocked agents */}
       {blockedAgents.length > 0 && (
-        <div className="p-4 bg-red-900/20 rounded-lg border border-red-800">
-          <h3 className="text-sm font-semibold text-red-400 mb-3">
-            Blocked Agents ({blockedAgents.length})
-          </h3>
-          <div className="space-y-2">
+        <div
+          className="rounded-xl overflow-hidden"
+          style={{ border: '1px solid rgba(239,68,68,0.18)' }}
+        >
+          {/* Section header */}
+          <div
+            className="flex items-center gap-2 px-4 py-2.5"
+            style={{ background: 'rgba(239,68,68,0.07)', borderBottom: '1px solid rgba(239,68,68,0.12)' }}
+          >
+            <BlockOutlinedIcon style={{ fontSize: 13, color: '#ef4444' }} />
+            <span className="text-[11px] font-bold uppercase tracking-widest" style={{ color: '#ef4444' }}>
+              Blocked by Pipeline
+            </span>
+            <span
+              className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full"
+              style={{ background: 'rgba(239,68,68,0.15)', color: '#fca5a5' }}
+            >
+              {blockedAgents.length}
+            </span>
+          </div>
+
+          <div className="divide-y" style={{ divideColor: 'rgba(239,68,68,0.08)' }}>
             {blockedAgents.map((agent) => (
               <div
                 key={agent.agentId}
-                className="flex items-center justify-between p-2 bg-gray-800/50 rounded"
+                className="flex items-start justify-between gap-3 px-4 py-3"
+                style={{ background: 'rgba(239,68,68,0.03)' }}
               >
-                <div>
-                  <span className="font-mono text-red-400">{agent.agentId}</span>
+                <div className="min-w-0 flex-1">
+                  <p className="font-mono text-sm font-semibold" style={{ color: '#fca5a5' }}>
+                    {agent.agentId}
+                  </p>
                   {agent.blockedReason && (
-                    <p className="text-xs text-gray-500 mt-0.5">{agent.blockedReason}</p>
+                    <p className="text-[11px] mt-0.5 leading-snug" style={{ color: '#7f1d1d' }}>
+                      {agent.blockedReason}
+                    </p>
                   )}
                   {agent.blockedAt && (
-                    <p className="text-xs text-gray-600">
-                      Since: {new Date(agent.blockedAt).toLocaleString()}
+                    <p className="text-[10px] font-mono mt-1" style={{ color: '#4b1a1a' }}>
+                      Blocked {new Date(agent.blockedAt).toLocaleString()}
                     </p>
                   )}
                 </div>
                 <button
-                  onClick={() => handleRestore(agent.agentId)}
-                  disabled={submitting}
-                  className="px-3 py-1 bg-green-600 hover:bg-green-700 disabled:bg-gray-700 rounded text-sm text-white transition-colors"
+                  onClick={() => void handleRestore(agent.agentId)}
+                  disabled={restoring === agent.agentId}
+                  className="flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:brightness-110 disabled:opacity-40"
+                  style={{
+                    background: 'rgba(16,185,129,0.08)',
+                    border: '1px solid rgba(16,185,129,0.2)',
+                    color: '#6ee7b7',
+                  }}
                 >
-                  Restore
+                  {restoring === agent.agentId ? '…' : 'Restore'}
                 </button>
               </div>
             ))}
@@ -195,17 +172,39 @@ export function KillSwitch({ onKillSwitch, refreshTrigger }: KillSwitchProps) {
         </div>
       )}
 
-      {/* Active Agents */}
-      {!loading && activeAgents.length > 0 && (
-        <div className="p-4 bg-gray-800/50 rounded-lg">
-          <h3 className="text-sm font-semibold text-gray-400 mb-2">
-            Active Agents ({activeAgents.length})
-          </h3>
-          <div className="flex flex-wrap gap-2">
+      {/* Active agents */}
+      {activeAgents.length > 0 && (
+        <div
+          className="rounded-xl overflow-hidden"
+          style={{ border: '1px solid rgba(16,185,129,0.12)' }}
+        >
+          {/* Section header */}
+          <div
+            className="flex items-center gap-2 px-4 py-2.5"
+            style={{ background: 'rgba(16,185,129,0.05)', borderBottom: '1px solid rgba(16,185,129,0.08)' }}
+          >
+            <CheckCircleOutlineIcon style={{ fontSize: 13, color: '#10b981' }} />
+            <span className="text-[11px] font-bold uppercase tracking-widest" style={{ color: '#10b981' }}>
+              Active Agents
+            </span>
+            <span
+              className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full"
+              style={{ background: 'rgba(16,185,129,0.12)', color: '#6ee7b7' }}
+            >
+              {activeAgents.length}
+            </span>
+          </div>
+
+          <div className="px-4 py-3 flex flex-wrap gap-2">
             {activeAgents.map((agent) => (
               <span
                 key={agent.agentId}
-                className="px-2 py-1 bg-green-900/30 border border-green-700 rounded text-sm text-green-400"
+                className="px-2.5 py-1 rounded-lg font-mono text-xs font-medium"
+                style={{
+                  background: 'rgba(16,185,129,0.07)',
+                  border: '1px solid rgba(16,185,129,0.15)',
+                  color: '#6ee7b7',
+                }}
               >
                 {agent.agentId}
               </span>

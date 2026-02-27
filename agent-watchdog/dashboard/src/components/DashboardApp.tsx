@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import AnalyticsOutlinedIcon from '@mui/icons-material/AnalyticsOutlined';
 import GppBadOutlinedIcon from '@mui/icons-material/GppBadOutlined';
@@ -8,12 +8,13 @@ import CheckCircleOutlineOutlinedIcon from '@mui/icons-material/CheckCircleOutli
 import OutlinedFlagOutlinedIcon from '@mui/icons-material/OutlinedFlagOutlined';
 import BlockOutlinedIcon from '@mui/icons-material/BlockOutlined';
 import ReportProblemOutlinedIcon from '@mui/icons-material/ReportProblemOutlined';
-import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined';
 import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined';
 import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
 import PowerSettingsNewOutlinedIcon from '@mui/icons-material/PowerSettingsNewOutlined';
 import HomeOutlinedIcon from '@mui/icons-material/HomeOutlined';
+import LogoutOutlined from '@mui/icons-material/LogoutOutlined';
 import type { SvgIconComponent } from '@mui/icons-material';
+import { authFetch, DASHBOARD_AUTH_KEY } from '../utils/api';
 import { RequestList } from './RequestList';
 import { AuditLog } from './AuditLog';
 import { ViolationCard } from './ViolationCard';
@@ -24,6 +25,8 @@ import { ViolationsPanel } from './ViolationsPanel';
 import { TopologyMap } from './TopologyMap';
 import { MagicBento, MagicBentoCard } from './MagicBento';
 import { ApiKeysManager } from './ApiKeysManager';
+import { ChatWidget } from './ChatWidget';
+import { KillAlertOverlay } from './KillAlertOverlay';
 import { useWebSocket } from '../hooks/useWebSocket';
 import botIcon from '../styles/icons/bot-icon.png';
 
@@ -37,13 +40,6 @@ interface Violation {
   detectedAt: string;
 }
 
-interface ChatMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  text: string;
-  timestamp: string;
-}
-
 interface HomeStatsSummary {
   totalRequests: number;
   approvedRequests: number;
@@ -54,7 +50,7 @@ interface HomeStatsSummary {
   activeAgents: number;
 }
 
-type TabKey = 'home' | 'requests' | 'audits' | 'violations' | 'topology' | 'control' | 'chat' | 'integration';
+type TabKey = 'home' | 'requests' | 'audits' | 'violations' | 'topology' | 'control' | 'integration';
 
 interface Tab {
   key: TabKey;
@@ -70,8 +66,7 @@ const tabs: Tab[] = [
   { key: 'audits',     label: 'Audits',       description: 'Decision trail and reasoning',        path: '/dashboard/audits',     Icon: FactCheckOutlinedIcon },
   { key: 'violations', label: 'Violations',   description: 'Policy violations and details',       path: '/dashboard/violations', Icon: GppBadOutlinedIcon },
   { key: 'topology',   label: 'Topology',     description: 'Live agent network map',              path: '/dashboard/topology',   Icon: AccountTreeOutlinedIcon },
-  { key: 'control',    label: 'Control',      description: 'Kill switch and live events',         path: '/dashboard/control',    Icon: PowerSettingsNewOutlinedIcon },
-  { key: 'chat',       label: 'AI Assistant', description: 'Ask questions about system status',   path: '/dashboard/chat',       Icon: SmartToyOutlinedIcon },
+  { key: 'control',    label: 'Control',      description: 'Agent status and live event stream',  path: '/dashboard/control',    Icon: PowerSettingsNewOutlinedIcon },
   { key: 'integration',label: 'Integration',  description: 'API base URL, keys, and setup guide', path: '/dashboard/integration',Icon: AnalyticsOutlinedIcon },
 ];
 
@@ -80,17 +75,23 @@ function useCountUp(target: number, duration = 900): number {
   const [count, setCount] = useState(0);
   const prev = useRef(0);
   useEffect(() => {
-    if (target === prev.current) return;
     const from = prev.current;
-    prev.current = target;
+    if (target === from) {
+      setCount(target);
+      return;
+    }
     const diff = target - from;
-    if (diff === 0) return;
     const start = Date.now();
     const timer = setInterval(() => {
       const progress = Math.min((Date.now() - start) / duration, 1);
       const eased = 1 - Math.pow(1 - progress, 3);
+      if (progress >= 1) {
+        setCount(target);
+        prev.current = target;
+        clearInterval(timer);
+        return;
+      }
       setCount(Math.round(from + diff * eased));
-      if (progress >= 1) clearInterval(timer);
     }, 16);
     return () => clearInterval(timer);
   }, [target, duration]);
@@ -172,10 +173,11 @@ function StatCard({ label, value, Icon, color, glowRgb, bars, delta, positive }:
 
 // ── System health bar ─────────────────────────────────────────────────────────
 function SystemHealthBar({ stats }: { stats: HomeStatsSummary }) {
-  const total = Math.max(1, stats.totalRequests);
-  const approveP = (stats.approvedRequests / total) * 100;
-  const flagP    = (stats.flaggedRequests   / total) * 100;
-  const killP    = (stats.killedRequests    / total) * 100;
+  // Use only processed requests so the bar fills to 100%
+  const processed = Math.max(1, stats.approvedRequests + stats.flaggedRequests + stats.killedRequests);
+  const approveP = (stats.approvedRequests / processed) * 100;
+  const flagP    = (stats.flaggedRequests   / processed) * 100;
+  const killP    = (stats.killedRequests    / processed) * 100;
 
   const risk =
     stats.killedRequests > 5  ? { label: 'HIGH RISK', color: '#ef4444', dot: '#ef4444' } :
@@ -272,14 +274,6 @@ export function DashboardApp() {
   const [violations, setViolations]         = useState<Violation[]>([]);
   const [homeStats, setHomeStats]           = useState<HomeStatsSummary | null>(null);
   const [homeStatsLoading, setHomeStatsLoading] = useState(true);
-  const [chatInput, setChatInput]           = useState('');
-  const [chatLoading, setChatLoading]       = useState(false);
-  const [messages, setMessages]             = useState<ChatMessage[]>([{
-    id: crypto.randomUUID(),
-    role: 'assistant',
-    text: 'Agent Watchdog AI is ready. Ask me anything about your live system — risk posture, blocked agents, recent violations, decision trends, or pipeline activity.',
-    timestamp: new Date().toISOString(),
-  }]);
 
   // WebSocket events → refresh triggers
   useEffect(() => {
@@ -304,11 +298,11 @@ export function DashboardApp() {
     }
   }, [lastEvent]);
 
-  // Load home stats
+  // Load home stats — also auto-polls every 10 s so numbers always stay fresh
   useEffect(() => {
     const load = async () => {
       try {
-        const res = await fetch('/api/audit/stats/summary');
+        const res = await authFetch('/api/audit/stats/summary');
         if (!res.ok) throw new Error('Failed');
         setHomeStats((await res.json()) as HomeStatsSummary);
       } catch (err) {
@@ -319,11 +313,9 @@ export function DashboardApp() {
     };
     setHomeStatsLoading(true);
     void load();
+    const poll = setInterval(() => { void load(); }, 10_000);
+    return () => clearInterval(poll);
   }, [refreshTrigger]);
-
-  const handleKillSwitch = useCallback(() => {
-    setRefreshTrigger((p) => p + 1);
-  }, []);
 
   const activeTab = tabs.find((t) => t.path === location.pathname)?.key ?? null;
   if (activeTab === null) return <Navigate to="/dashboard/home" replace />;
@@ -373,45 +365,6 @@ export function DashboardApp() {
     },
   ] : [];
 
-  // Chat helpers
-  const getChatHistory = useCallback(() =>
-    messages
-      .filter((m, i) => !(m.role === 'assistant' && i === 0))
-      .map((m) => ({ role: m.role, content: m.text })),
-    [messages]
-  );
-
-  const sendMessage = useCallback(async () => {
-    const input = chatInput.trim();
-    if (!input || chatLoading) return;
-    const userMsg: ChatMessage = { id: crypto.randomUUID(), role: 'user', text: input, timestamp: new Date().toISOString() };
-    setMessages((p) => [...p, userMsg]);
-    setChatInput('');
-    setChatLoading(true);
-    try {
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: input, history: getChatHistory() }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({})) as { message?: string };
-        throw new Error(err.message ?? `Error ${res.status}`);
-      }
-      const data = await res.json() as { reply: string; timestamp: string };
-      setMessages((p) => [...p, { id: crypto.randomUUID(), role: 'assistant', text: data.reply, timestamp: data.timestamp }]);
-    } catch (err) {
-      setMessages((p) => [...p, {
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        text: `Error: ${err instanceof Error ? err.message : 'Unknown error. Please try again.'}`,
-        timestamp: new Date().toISOString(),
-      }]);
-    } finally {
-      setChatLoading(false);
-    }
-  }, [chatInput, chatLoading, getChatHistory]);
-
   const sectionTitle = (label: string, Icon: SvgIconComponent) => (
     <span className="inline-flex items-center gap-2 text-slate-100">
       <Icon fontSize="small" style={{ color: '#22d3ee' }} />
@@ -435,8 +388,8 @@ export function DashboardApp() {
               <img src={botIcon} alt="AW" className="w-4 h-4 object-contain" />
             </div>
             <div className="min-w-0">
-              <h1 className="text-sm font-bold text-white leading-tight">Agent Watchdog</h1>
-              <p className="text-[10px] leading-tight" style={{ color: '#475569' }}>Security Operations</p>
+              <h1 className="text-sm font-bold text-white leading-tight">agent S.H.I.E.L.D</h1>
+              <p className="text-[10px] leading-tight" style={{ color: '#475569' }}>Visibility into every decision your AI makes.</p>
             </div>
           </div>
         </div>
@@ -474,8 +427,19 @@ export function DashboardApp() {
         </nav>
 
         {/* Footer */}
-        <div className="px-4 py-3" style={{ borderTop: '1px solid var(--c-border)' }}>
-          <p className="text-[10px] text-center" style={{ color: '#334155' }}>© Agent Watchdog</p>
+        <div className="px-3 py-3 space-y-2" style={{ borderTop: '1px solid var(--c-border)' }}>
+          <button
+            onClick={() => {
+              localStorage.removeItem(DASHBOARD_AUTH_KEY);
+              navigate('/');
+            }}
+            className="aw-nav-item w-full text-rose-400 hover:text-rose-300"
+            style={{ justifyContent: 'flex-start' }}
+          >
+            <LogoutOutlined style={{ fontSize: 15, flexShrink: 0 }} />
+            <span className="truncate">Logout</span>
+          </button>
+          <p className="text-[10px] text-center" style={{ color: '#334155' }}>© agent S.H.I.E.L.D</p>
         </div>
       </aside>
 
@@ -610,8 +574,8 @@ export function DashboardApp() {
           <div>
             <PageHeader tab={activeTabObj} eventCount={events.length} />
             <MagicBento>
-              <MagicBentoCard className="col-span-12 lg:col-span-7" title="Kill Switch Controls">
-                <KillSwitch onKillSwitch={handleKillSwitch} refreshTrigger={refreshTrigger} />
+              <MagicBentoCard className="col-span-12 lg:col-span-7" title="Agent Status">
+                <KillSwitch refreshTrigger={refreshTrigger} />
               </MagicBentoCard>
               <MagicBentoCard className="col-span-12 lg:col-span-5" title="Live Event Feed">
                 <EventFeed events={events} isConnected={isConnected} />
@@ -620,7 +584,7 @@ export function DashboardApp() {
           </div>
         )}
 
-        {/* ── CHAT ── */}
+        {/* ── INTEGRATION ── */}
         {activeTab === 'integration' && (
           <div>
             <PageHeader tab={activeTabObj} eventCount={events.length} />
@@ -630,101 +594,13 @@ export function DashboardApp() {
           </div>
         )}
 
-        {activeTab === 'chat' && (
-          <div>
-            <PageHeader tab={activeTabObj} eventCount={events.length} />
-            <MagicBentoCard subtitle="Powered by Claude — ask anything about your live system">
-              <div className="flex h-[600px] flex-col gap-3">
-
-                {/* Messages */}
-                <div
-                  className="flex-1 space-y-3 overflow-y-auto rounded-xl p-3"
-                  style={{ background: 'var(--c-bg)', border: '1px solid var(--c-border)' }}
-                >
-                  {messages.map((msg) => (
-                    <div
-                      key={msg.id}
-                      className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                    >
-                      <div
-                        className="max-w-[85%] rounded-xl px-3.5 py-2.5 text-sm"
-                        style={{
-                          background: msg.role === 'user'
-                            ? 'rgba(34,211,238,0.1)'
-                            : 'var(--c-surface)',
-                          border: `1px solid ${msg.role === 'user' ? 'rgba(34,211,238,0.18)' : 'var(--c-border)'}`,
-                          color: msg.role === 'user' ? '#a5f3fc' : '#cbd5e1',
-                        }}
-                      >
-                        {msg.role === 'assistant' ? (
-                          <div className="whitespace-pre-wrap leading-relaxed">{msg.text}</div>
-                        ) : (
-                          <p>{msg.text}</p>
-                        )}
-                        <p className="mt-1.5 text-[10px] font-mono" style={{ color: '#475569' }}>
-                          {new Date(msg.timestamp).toLocaleTimeString()}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-
-                  {chatLoading && (
-                    <div className="flex justify-start">
-                      <div
-                        className="rounded-xl px-3.5 py-2.5"
-                        style={{ background: 'var(--c-surface)', border: '1px solid var(--c-border)' }}
-                      >
-                        <span className="inline-flex gap-1 text-slate-500">
-                          {[0, 150, 300].map((delay) => (
-                            <span
-                              key={delay}
-                              className="animate-bounce text-xs"
-                              style={{ animationDelay: `${delay}ms` }}
-                            >●</span>
-                          ))}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Input row */}
-                <div className="flex gap-2">
-                  <input
-                    value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) void sendMessage(); }}
-                    placeholder="Ask about risk posture, blocked agents, violations, trends…"
-                    disabled={chatLoading}
-                    className="flex-1 rounded-xl px-3.5 py-2.5 text-sm outline-none"
-                    style={{
-                      background: 'var(--c-surface)',
-                      border: '1px solid var(--c-border)',
-                      color: '#e2e8f0',
-                      transition: 'border-color 150ms',
-                    }}
-                    onFocus={(e) => { e.currentTarget.style.borderColor = 'rgba(34,211,238,0.35)'; }}
-                    onBlur={(e)  => { e.currentTarget.style.borderColor = 'var(--c-border)'; }}
-                  />
-                  <button
-                    onClick={() => void sendMessage()}
-                    disabled={chatLoading || !chatInput.trim()}
-                    className="rounded-xl px-4 py-2.5 text-sm font-semibold transition-opacity disabled:opacity-40"
-                    style={{
-                      background: 'rgba(34,211,238,0.1)',
-                      border: '1px solid rgba(34,211,238,0.22)',
-                      color: '#a5f3fc',
-                    }}
-                  >
-                    Send
-                  </button>
-                </div>
-              </div>
-            </MagicBentoCard>
-          </div>
-        )}
-
       </main>
+
+      {/* ── Floating AI chat widget ───────────────────────────────────── */}
+      <ChatWidget />
+
+      {/* ── Kill alert overlay ────────────────────────────────────────── */}
+      <KillAlertOverlay />
     </div>
   );
 }

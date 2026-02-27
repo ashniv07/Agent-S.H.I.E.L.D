@@ -42,15 +42,6 @@ export function createRequestsRouter(io: SocketIOServer): Router {
         });
       }
 
-      // Check permissions
-      const permCheck = permissions.validateAction(request.agentId, request.action);
-      if (!permCheck.allowed) {
-        return res.status(403).json({
-          error: 'Permission denied',
-          reason: permCheck.reason,
-        });
-      }
-
       // Ensure agent is registered
       permissions.register(request.agentId);
 
@@ -109,8 +100,15 @@ export function createRequestsRouter(io: SocketIOServer): Router {
       const finalRiskScore = result.severityResult?.riskScore ?? 50;
       updateBaseline(request.agentId, request.action, request.target, finalRiskScore);
 
-      // If decision is KILL, trigger kill switch
-      if (result.decision === 'KILL') {
+      const riskScore = result.severityResult?.riskScore ?? 0;
+      const severity = result.severityResult?.overallSeverity;
+      const shouldBlockAgent =
+        result.decision === 'KILL' &&
+        (riskScore >= 90 || severity === 'CRITICAL');
+
+      // Trigger kill switch only for truly critical kill conditions.
+      // This prevents routine/high (e.g., score ~75) requests from permanently blocking an agent.
+      if (shouldBlockAgent) {
         killSwitch.trigger(
           request.agentId,
           `Automatic kill switch triggered. ${result.decisionReasoning}`,

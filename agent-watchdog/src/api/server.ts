@@ -17,9 +17,9 @@ export function createApp() {
   const io = setupWebSocket(httpServer);
 
   app.use(cors({
-    origin: ['http://localhost:5173', 'http://localhost:3000'],
+    origin: "*",
     methods: ['GET', 'POST', 'PATCH', 'DELETE'],
-    credentials: true,
+    credentials: false,
   }));
   app.use(express.json());
 
@@ -52,12 +52,26 @@ export function createApp() {
     return next();
   };
 
+  // Optional auth — resolves the key if present but never rejects unauthenticated requests.
+  // Used on /api/keys so the keys list can be scoped to the caller's key.
+  const optionalApiKeyAuth: express.RequestHandler = (req, _res, next) => {
+    const provided = resolveProvidedApiKey(req);
+    if (provided) {
+      const resolved = db.resolveApiKey(provided);
+      if (resolved) {
+        req.authApiKeyId = resolved.id;
+        req.authApiKeyPreview = resolved.preview;
+      }
+    }
+    return next();
+  };
+
   app.use('/api/requests', requireApiKeyAuth, createRequestsRouter(io));
   app.use('/v1/guard', requireApiKeyAuth, createRequestsRouter(io));
   app.use('/api/audit', requireApiKeyAuth, auditRouter);
   app.use('/api/agents', requireApiKeyAuth, createAgentsRouter(io));
   app.use('/api/chat', requireApiKeyAuth, chatRouter);
-  app.use('/api/keys', keysRouter);
+  app.use('/api/keys', optionalApiKeyAuth, keysRouter);
 
   app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     console.error('Unhandled error:', err);

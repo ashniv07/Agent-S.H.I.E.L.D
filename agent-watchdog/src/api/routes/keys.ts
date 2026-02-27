@@ -51,9 +51,13 @@ keysRouter.post('/auth', (req: Request, res: Response) => {
   });
 });
 
-// List all keys (hashes never returned — only preview + metadata)
-keysRouter.get('/', (_req: Request, res: Response) => {
-  const keys = db.listApiKeys();
+// List keys — when an authenticated API key is present, return only that key's record.
+keysRouter.get('/', (req: Request, res: Response) => {
+  const allKeys = db.listApiKeys();
+  const scopedId = req.authApiKeyId;
+  const keys = scopedId
+    ? allKeys.filter((k) => k.id === scopedId)
+    : allKeys;
   return res.json({ keys });
 });
 

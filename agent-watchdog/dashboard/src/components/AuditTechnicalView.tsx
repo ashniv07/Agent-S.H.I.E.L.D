@@ -99,7 +99,37 @@ export function AuditTechnicalView({ entry }: AuditTechnicalViewProps) {
       {/* Decision reasoning */}
       <div className="bg-gray-800/60 rounded p-2 text-xs">
         <span className="text-gray-500 block mb-1">Decision Reasoning</span>
-        <p className="text-gray-300 font-mono whitespace-pre-wrap">{entry.reasoning}</p>
+        {(() => {
+          const parts = entry.reasoning.split(' | ').map((s) => s.trim()).filter(Boolean);
+          return parts.length > 1 ? (
+            <ul className="space-y-1">
+              {parts.map((part, i) => {
+                const colonIdx = part.indexOf(': ');
+                if (colonIdx !== -1) {
+                  const label = part.slice(0, colonIdx);
+                  const value = part.slice(colonIdx + 2);
+                  return (
+                    <li key={i} className="flex items-start gap-1.5">
+                      <span className="text-cyan-600 flex-shrink-0 mt-0.5">•</span>
+                      <span>
+                        <span className="text-gray-500 font-mono">{label}: </span>
+                        <span className="text-gray-300">{value}</span>
+                      </span>
+                    </li>
+                  );
+                }
+                return (
+                  <li key={i} className="flex items-start gap-1.5">
+                    <span className="text-cyan-600 flex-shrink-0 mt-0.5">•</span>
+                    <span className="text-gray-300">{part}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="text-gray-300 font-mono whitespace-pre-wrap">{entry.reasoning}</p>
+          );
+        })()}
       </div>
 
       {/* Collapsible JSON sections */}

@@ -132,12 +132,15 @@ export function KillSwitch({ refreshTrigger }: KillSwitchProps) {
             </span>
           </div>
 
-          <div className="divide-y" style={{ divideColor: 'rgba(239,68,68,0.08)' }}>
-            {blockedAgents.map((agent) => (
+          <div>
+            {blockedAgents.map((agent, index) => (
               <div
                 key={agent.agentId}
                 className="flex items-start justify-between gap-3 px-4 py-3"
-                style={{ background: 'rgba(239,68,68,0.03)' }}
+                style={{
+                  background: 'rgba(239,68,68,0.03)',
+                  borderTop: index > 0 ? '1px solid rgba(239,68,68,0.08)' : undefined,
+                }}
               >
                 <div className="min-w-0 flex-1">
                   <p className="font-mono text-sm font-semibold" style={{ color: '#fca5a5' }}>

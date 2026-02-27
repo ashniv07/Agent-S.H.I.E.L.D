@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
+import { WS_URL } from '../utils/api';
 
 export interface WSEvent {
   type: string;
@@ -16,7 +17,7 @@ export interface UseWebSocketResult {
   clearEvents: () => void;
 }
 
-export function useWebSocket(url = 'http://localhost:3001'): UseWebSocketResult {
+export function useWebSocket(url = WS_URL): UseWebSocketResult {
   const [isConnected, setIsConnected] = useState(false);
   const [events, setEvents] = useState<WSEvent[]>([]);
   const [lastEvent, setLastEvent] = useState<WSEvent | null>(null);

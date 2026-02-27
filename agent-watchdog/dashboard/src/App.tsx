@@ -8,7 +8,7 @@ import { DashboardApp } from './components/DashboardApp';
 import { AgentFlow } from './components/AgentFlow';
 import { SpotlightCard } from './components/SpotlightCard';
 import botIcon from './styles/icons/bot-icon.png';
-import { DASHBOARD_AUTH_KEY } from './utils/api';
+import { authFetch, DASHBOARD_AUTH_KEY } from './utils/api';
 
 const typedTexts = [
   'Monitor every request through a multi-agent security pipeline.',
@@ -65,7 +65,7 @@ function App() {
   useEffect(() => {
     const load = async () => {
       try {
-        const res = await fetch('/api/keys/auth/config');
+        const res = await authFetch('/api/keys/auth/config');
         if (!res.ok) throw new Error('Failed to fetch integration config');
         const data = await res.json() as IntegrationConfig;
         setIntegrationConfig(data);
@@ -160,7 +160,7 @@ function App() {
     const generatedName = `external-agent-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 
     try {
-      const res = await fetch('/api/keys', {
+      const res = await authFetch('/api/keys', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: generatedName }),
@@ -182,7 +182,7 @@ function App() {
     setAuthError('');
 
     try {
-      const res = await fetch('/api/keys/auth', {
+      const res = await authFetch('/api/keys/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ apiKey: loginKey.trim() }),

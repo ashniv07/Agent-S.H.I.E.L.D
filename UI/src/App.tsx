@@ -225,7 +225,7 @@ function App() {
               <img src={botIcon} alt="Agent S.H.I.E.L.D" className="h-5 w-5 object-contain" />
             </span>
             <div>
-              <p className="text-lg font-semibold tracking-tight text-slate-100">A gent S.H.I.E.L.D</p>
+              <p className="text-lg font-semibold tracking-tight text-slate-100">Agent S.H.I.E.L.D</p>
               <p className="text-xs text-slate-400">Visibility into every decision your AI makes.</p>
             </div>
           </div>

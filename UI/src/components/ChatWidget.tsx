@@ -181,7 +181,7 @@ export function ChatWidget() {
   const [messages, setMessages] = useState<ChatMessage[]>([{
     id: crypto.randomUUID(),
     role: 'assistant',
-    text: 'agent S.H.I.E.L.D AI is ready. Ask me anything about your live system — risk posture, blocked agents, recent violations, or pipeline activity.',
+    text: 'Agent S.H.I.E.L.D AI is ready. Ask me anything about your live system — risk posture, blocked agents, recent violations, or pipeline activity.',
     timestamp: new Date().toISOString(),
   }]);
   const [chatInput, setChatInput] = useState('');

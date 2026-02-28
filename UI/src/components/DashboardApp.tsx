@@ -388,7 +388,7 @@ export function DashboardApp() {
               <img src={botIcon} alt="AW" className="w-4 h-4 object-contain" />
             </div>
             <div className="min-w-0">
-              <h1 className="text-sm font-bold text-white leading-tight">agent S.H.I.E.L.D</h1>
+              <h1 className="text-sm font-bold text-white leading-tight">Agent S.H.I.E.L.D</h1>
               <p className="text-[10px] leading-tight" style={{ color: '#475569' }}>Visibility into every decision your AI makes.</p>
             </div>
           </div>
@@ -439,7 +439,7 @@ export function DashboardApp() {
             <LogoutOutlined style={{ fontSize: 15, flexShrink: 0 }} />
             <span className="truncate">Logout</span>
           </button>
-          <p className="text-[10px] text-center" style={{ color: '#334155' }}>© agent S.H.I.E.L.D</p>
+          <p className="text-[10px] text-center" style={{ color: '#334155' }}>© Agent S.H.I.E.L.D</p>
         </div>
       </aside>
 

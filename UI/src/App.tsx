@@ -222,10 +222,10 @@ function App() {
         <header className="mb-5 flex items-start justify-between gap-3 text-cyan-300 sm:mb-6">
           <div className="flex items-center gap-3">
             <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-cyan-400/35 bg-cyan-400/10 text-base font-bold">
-              <img src={botIcon} alt="agent S.H.I.E.L.D" className="h-5 w-5 object-contain" />
+              <img src={botIcon} alt="Agent S.H.I.E.L.D" className="h-5 w-5 object-contain" />
             </span>
             <div>
-              <p className="text-lg font-semibold tracking-tight text-slate-100">agent S.H.I.E.L.D</p>
+              <p className="text-lg font-semibold tracking-tight text-slate-100">A gent S.H.I.E.L.D</p>
               <p className="text-xs text-slate-400">Visibility into every decision your AI makes.</p>
             </div>
           </div>
@@ -300,7 +300,7 @@ function App() {
                 <div key={`${item.title}-${index}`} className="marquee-item">
                   <SpotlightCard title={item.title} description={item.description} icon={item.icon}>
                     <p className="mt-5 text-xs uppercase tracking-[0.16em] text-cyan-300/80">
-                      agent S.H.I.E.L.D
+                      Agent S.H.I.E.L.D
                     </p>
                   </SpotlightCard>
                 </div>
@@ -319,7 +319,7 @@ function App() {
           </div>
         </section>
 
-        <footer className="mt-auto pt-8 text-center text-sm text-slate-500">copyright (cp) 2026 . agent S.H.I.E.L.D</footer>
+        <footer className="mt-auto pt-8 text-center text-sm text-slate-500">copyright (cp) 2026 . Agent S.H.I.E.L.D</footer>
       </div>
 
       {authModal === 'get-key' && (

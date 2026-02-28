@@ -13,10 +13,10 @@ const configSchema = z.object({
 
 const configResult = configSchema.safeParse({
   anthropicApiKey: process.env.ANTHROPIC_API_KEY,
-  port: process.env.PORT,
-  host: process.env.HOST,
-  databasePath: process.env.DATABASE_PATH,
-  nodeEnv: process.env.NODE_ENV,
+  port: process.env.PORT || undefined,
+  host: process.env.HOST || undefined,
+  databasePath: process.env.DATABASE_PATH || undefined,
+  nodeEnv: process.env.NODE_ENV || undefined,
 });
 
 if (!configResult.success) {

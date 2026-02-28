@@ -23,8 +23,7 @@ Real-time AI governance and security layer using LangGraph multi-agent architect
 # Install backend dependencies
 npm install
 
-# Install dashboard dependencies
-cd dashboard && npm install && cd ..
+
 ```
 
 ### Configuration
@@ -45,12 +44,10 @@ NODE_ENV=development
 # Terminal 1: Start the backend
 npm run dev
 
-# Terminal 2: Start the dashboard
-cd dashboard && npm run dev
 ```
 
 - Backend: http://localhost:3001
-- Dashboard: http://localhost:5173
+
 
 ## API Endpoints
 
